@@ -83,7 +83,7 @@ export interface ParameterDelta {
   id: string;
   docId: string;
   operator: string;
-  category: 'Network/Technical' | 'Security' | 'Commercial' | 'Financial/Billing' | 'Legal/Compliance' | 'Operations';
+  category: string;
   changeType: 'Added' | 'Removed' | 'Modified';
   parameterName: string;
   oldValue: string;

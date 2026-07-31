@@ -285,7 +285,7 @@ export const WorkflowVisualization: React.FC = () => {
   const completedStep = activeDoc ? getCompletedStepForDoc(activeDoc.status) : 4;
 
   const dynamicNodes = INITIAL_NODES.map((node) => {
-    const stepNum = parseInt(node.data.stepNumber, 10);
+    const stepNum = parseInt(node.data.stepNumber as string, 10);
     let statusState = 'pending';
     let statusLabel = 'Upcoming';
 

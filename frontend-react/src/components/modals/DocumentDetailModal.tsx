@@ -17,7 +17,7 @@ export const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({ docId,
   useEffect(() => {
     if (activeTab === 'workflow' && docId) {
       setLoadingWf(true);
-      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const API_BASE = (import.meta as any).env.VITE_API_URL || '';
       fetch(`${API_BASE}/api/workflow/${docId}`, {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('admin_token')}` }
       })

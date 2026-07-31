@@ -30,11 +30,11 @@ export const AIAssistant: React.FC = () => {
     setLoading(true);
 
     try {
-      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const API_BASE = (import.meta as any).env.VITE_API_URL || '';
       const url = `${API_BASE}/api/assistant/chat`;
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() } as Record<string, string>,
         body: JSON.stringify({ message: userMsg, history: nextMessages.slice(0, -1) }),
       });
       const data = await res.json();

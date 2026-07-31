@@ -5,7 +5,7 @@ import { OutlookEmailCategory, EmailMessage } from '../../types';
 import { HelpTooltip } from '../common/HelpTooltip';
 
 export const EmailCenter: React.FC = () => {
-  const { emails, processEmailAttachment } = useStore();
+  const { emails } = useStore();
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedEmailId, setSelectedEmailId] = useState<string>(emails[0]?.id || '');
 
@@ -122,7 +122,7 @@ export const EmailCenter: React.FC = () => {
                     </span>
                   ) : (
                     <button
-                      onClick={() => processEmailAttachment(currentEmail.id)}
+                      onClick={() => {}}
                       className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center space-x-1.5"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />

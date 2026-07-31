@@ -124,14 +124,14 @@ const getAuthHeaders = () => {
 };
 
 // Optional base URL for the backend API when hosted separately
-const API_BASE = import.meta.env.VITE_API_URL || '';
+const API_BASE = (import.meta as any).env.VITE_API_URL || '';
 
 async function handleFetch(endpoint: string, options?: RequestInit) {
   const token = localStorage.getItem('admin_token');
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    ...(options?.headers || {}),
+    ...(options?.headers as Record<string, string> || {}),
   };
 
   const url = `${API_BASE}${endpoint}`;
@@ -242,7 +242,7 @@ export const useStore = create<AppState>((set, get) => ({
       headers: {
         'Content-Type': 'application/json',
         ...getAuthHeaders()
-      },
+      } as Record<string, string>,
       body: JSON.stringify({ token })
     }).catch(() => {});
     localStorage.removeItem('admin_token');
@@ -719,10 +719,10 @@ export const useStore = create<AppState>((set, get) => ({
   approveItem: async (chainId, comment) => {
     const chain = get().approvalChains.find((c) => c.id === chainId);
     if (!chain) return;
-    const step = chain.steps.find((s) => s.status === 'Pending');
+    const step: any = chain.steps.find((s) => s.status === 'Pending');
     if (!step || !step.token) return;
 
-    const res = await fetch(`/api/approvals/${step.token}/decide`, {
+    const res = await fetch(`${API_BASE}/api/approvals/${step.token}/decide`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'approve', comment })
@@ -740,10 +740,10 @@ export const useStore = create<AppState>((set, get) => ({
   rejectItem: async (chainId, reason) => {
     const chain = get().approvalChains.find((c) => c.id === chainId);
     if (!chain) return;
-    const step = chain.steps.find((s) => s.status === 'Pending');
+    const step: any = chain.steps.find((s) => s.status === 'Pending');
     if (!step || !step.token) return;
 
-    const res = await fetch(`/api/approvals/${step.token}/decide`, {
+    const res = await fetch(`${API_BASE}/api/approvals/${step.token}/decide`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reject', comment: reason })
