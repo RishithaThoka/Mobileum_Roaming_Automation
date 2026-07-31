@@ -11,10 +11,18 @@ function getTransport() {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: Number(process.env.SMTP_PORT) === 465,
+    ignoreTLS: false,
+    requireTLS: true,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    // Force Node.js net.Socket to use IPv4 only, ignoring IPv6 records
+    tls: {
+      rejectUnauthorized: true,
+    },
+    // Pass family: 4 to the underlying socket connection
+    family: 4,
   });
 }
 
