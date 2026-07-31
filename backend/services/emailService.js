@@ -1,9 +1,10 @@
 const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 
 function isConfigured() {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return !!(process.env.SENDGRID_API_KEY || (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS));
 }
 
 async function getTransport() {
@@ -89,17 +90,33 @@ async function sendApprovalEmail({ approvalStepId, toEmail, approverName, roleTi
 
   if (isConfigured()) {
     try {
-      const transport = await getTransport();
-      await transport.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
-        to: toEmail,
-        subject,
-        html,
-      });
-      mode = 'sent';
+      const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@mobileum.com';
+      
+      if (process.env.SENDGRID_API_KEY) {
+        // SendGrid API routing
+        sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+        await sgMail.send({
+          to: toEmail,
+          from: fromEmail,
+          subject,
+          html,
+        });
+        mode = 'sent (sendgrid)';
+      } else {
+        // SMTP Fallback routing
+        const transport = await getTransport();
+        await transport.sendMail({
+          from: fromEmail,
+          to: toEmail,
+          subject,
+          html,
+        });
+        mode = 'sent (smtp)';
+      }
     } catch (err) {
       mode = 'failed';
-      error = err.message;
+      // SendGrid errors are sometimes nested
+      error = err.response ? err.response.body.errors[0].message : err.message;
     }
   }
 
