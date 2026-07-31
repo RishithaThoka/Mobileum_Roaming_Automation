@@ -124,7 +124,8 @@ const getAuthHeaders = () => {
 };
 
 // Optional base URL for the backend API when hosted separately
-const API_BASE = (import.meta as any).env.VITE_API_URL || '';
+// @ts-ignore
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 async function handleFetch(endpoint: string, options?: RequestInit) {
   const token = localStorage.getItem('admin_token');

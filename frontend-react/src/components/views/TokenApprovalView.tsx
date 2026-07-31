@@ -16,7 +16,8 @@ export const TokenApprovalView: React.FC<TokenApprovalViewProps> = ({ token }) =
 
   const fetchDetails = async () => {
     try {
-      const API_BASE = (import.meta as any).env.VITE_API_URL || '';
+      // @ts-ignore
+      const API_BASE = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${API_BASE}/api/approvals/token/${token}`);
       if (!res.ok) {
         throw new Error('This link is invalid or expired.');
@@ -46,7 +47,8 @@ export const TokenApprovalView: React.FC<TokenApprovalViewProps> = ({ token }) =
     setSubmitting(true);
     try {
       const commentWithSignature = `Approved by ${signatureName}. Comment: ${comment || 'None'}`;
-      const API_BASE = (import.meta as any).env.VITE_API_URL || '';
+      // @ts-ignore
+      const API_BASE = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${API_BASE}/api/approvals/${token}/decide`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
