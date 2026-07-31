@@ -77,7 +77,8 @@ async function notifyStepsAtStatus(workflowId, status) {
     });
 
     db.prepare(`UPDATE approval_steps SET notified_at = datetime('now') WHERE id = ?`).run(step.id);
-    logAudit('approval_step', step.id, 'notified', 'system', `Email ${result.mode} to ${step.approver_email} for category ${step.category}`);
+    const errorSuffix = result.error ? ` (Error: ${result.error})` : '';
+    logAudit('approval_step', step.id, 'notified', 'system', `Email ${result.mode} to ${step.approver_email} for category ${step.category}${errorSuffix}`);
   }
 }
 

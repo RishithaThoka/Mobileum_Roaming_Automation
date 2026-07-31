@@ -9,6 +9,7 @@ export const QuickUploadModal: React.FC = () => {
 
   const [docTitle, setDocTitle] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!quickUploadOpen) return null;
 
@@ -31,18 +32,21 @@ export const QuickUploadModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) {
-      alert('Please select a file first.');
+    if (!selectedFile || isSubmitting) {
+      if (!selectedFile) alert('Please select a file first.');
       return;
     }
+    setIsSubmitting(true);
     uploadDocument(selectedFile, docTitle)
       .then(() => {
         setQuickUploadOpen(false);
         setSelectedFile(null);
         setDocTitle('');
+        setIsSubmitting(false);
       })
       .catch((err) => {
         alert(err.message || 'Ingestion failed');
+        setIsSubmitting(false);
       });
   };
 
@@ -124,10 +128,11 @@ export const QuickUploadModal: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-blue-600/30 transition-all flex items-center space-x-2"
+              disabled={isSubmitting}
+              className={`px-5 py-2.5 text-white text-xs font-semibold rounded-xl shadow-lg transition-all flex items-center space-x-2 ${isSubmitting ? 'bg-blue-400 cursor-not-allowed shadow-none' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'}`}
             >
               <Upload className="w-4 h-4" />
-              <span>Ingest & Check Differences</span>
+              <span>{isSubmitting ? 'Processing...' : 'Ingest & Check Differences'}</span>
             </button>
           </div>
         </form>
