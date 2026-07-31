@@ -234,6 +234,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   logout: () => {
+    const token = get().token;
     localStorage.removeItem('admin_token');
     const url = `${API_BASE}/api/auth/logout`;
     fetch(url, {
