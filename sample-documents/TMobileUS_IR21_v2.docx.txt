@@ -1,0 +1,18 @@
+GSMA IR21 OPERATOR DOCUMENT
+Operator Name: T-Mobile US
+Country: USA
+TADIG Code: USA310
+Document Type: IR21
+
+NETWORK TECHNICAL CONFIG
+HLR Global Title: 14250009999
+Signalling Point Code: 1-100-1
+GRX IPX Provider: Syniverse
+APN Roaming: tmobile.us.roaming2
+
+SECURITY & CHARGING POLICY
+Steering Of Roaming Supported: true
+Fraud Contact Email: fraud-alert@t-mobile.com
+Wholesale Voice Rate: 0.0135 USD/min
+Wholesale Data Rate Per MB: 0.0028 USD/MB
+Currency: USD

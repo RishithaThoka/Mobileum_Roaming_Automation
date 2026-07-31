@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased;
+  }
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(241, 245, 249, 0.8);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 102, 255, 0.8);
+}
+
+/* Custom Glassmorphism - Light Mode */
+.glass-panel {
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+}
+
+.glass-panel-hover {
+  transition: all 0.25s ease;
+}
+.glass-panel-hover:hover {
+  border-color: rgba(0, 102, 255, 0.4);
+  box-shadow: 0 8px 30px rgba(0, 102, 255, 0.08);
+  transform: translateY(-2px);
+}
+
+/* Glowing Edges */
+.glow-border-active {
+  box-shadow: 0 0 15px rgba(0, 102, 255, 0.25), inset 0 0 10px rgba(0, 102, 255, 0.05);
+  border-color: #0066FF !important;
+}
+
+/* React Flow custom styling */
+.react-flow__node {
+  border-radius: 0.75rem;
+  padding: 0;
+  font-family: inherit;
+}
+
+.react-flow__controls {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  background: #ffffff !important;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.8) !important;
+  color: #475569 !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgba(0, 102, 255, 0.1) !important;
+  color: #0066FF !important;
+}
+
+.react-flow__attribution {
+  display: none !important;
+}

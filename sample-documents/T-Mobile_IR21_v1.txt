@@ -1,0 +1,20 @@
+OPERATOR PROFILE
+Operator Name: T-Mobile US
+Country: USA
+Network Code: USA310
+Document Type: IR21
+
+NETWORK TECHNICAL
+HLR Global Title: 14250000000
+Signalling Point Code: 1-100-1
+GRX IPX Provider: Syniverse
+APN Roaming: tmobile.us.roaming
+
+FINANCIAL BILLING
+Wholesale Voice Rate: 0.0120 USD/min
+Wholesale Data Rate Per MB: 0.0030 USD/MB
+Currency: USD
+
+SECURITY
+Fraud Contact Email: fraud@t-mobile.com
+Steering Of Roaming Supported: true

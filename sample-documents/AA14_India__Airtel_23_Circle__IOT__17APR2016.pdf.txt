@@ -1,0 +1,18 @@
+RAEX IOT DOCUMENT IDENTIFIER
+Operator Name: Bharti Airtel
+Country: India
+TADIG Code: INDAT
+IOT Identifier: Bharti Airtel / Hexacom 23 circles
+Document Type: RAEX
+
+DESTINATION BANDS & CHARGING POLICY
+MOC National Rate: 0.0150 USD/min
+MOC International Rate: 0.0400 USD/min
+MTC Voice Rate: 0.0050 USD/min
+PS Data Rate Per MB: 0.0030 USD/MB
+
+NETWORK TECHNICAL CONFIG
+HLR Global Title: 919820000000
+Signalling Point Code: 5-21-9
+GRX IPX Provider: Tata Communications
+APN Roaming: airtel.in.roaming

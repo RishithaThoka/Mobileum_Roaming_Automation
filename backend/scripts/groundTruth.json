@@ -1,0 +1,19 @@
+[
+  { "file": "T-Mobile_IR21_v1.txt", "format": "txt", "expectOperator": "T-Mobile", "expectCountry": "USA" },
+  { "file": "Singtel_IR21_v1.csv", "format": "csv", "expectOperator": "Singtel", "expectCountry": "Singapore" },
+  { "file": "Singtel_IR21_v2.csv", "format": "csv", "expectOperator": "Singtel", "expectCountry": "Singapore" },
+  { "file": "RAEX_IOT_Orange_v1.txt", "format": "txt", "expectOperator": "Orange", "expectCountry": "France" },
+  { "file": "RAEX_IOT_Orange_v2.txt", "format": "txt", "expectOperator": "Orange", "expectCountry": "France" },
+  { "file": "AA14_India__Airtel_23_Circle__IOT__17APR2016.pdf.txt", "format": "txt", "expectOperator": "Airtel", "expectCountry": "India" },
+  { "file": "AA14_India__Airtel_23_Circle__IOT_v2.txt", "format": "txt", "expectOperator": "Airtel", "expectCountry": "India" },
+  { "file": "IR21-_Bharti_India_updated_with_7_new_circles_6_March_2024.doc.txt", "format": "txt", "expectOperator": "Airtel", "expectCountry": "India" },
+  { "file": "TMobileUS_IR21_v1.docx.txt", "format": "txt", "expectOperator": "T-Mobile", "expectCountry": "USA" },
+  { "file": "raex-xml/OrangeFrance_RAEX_v1.xml", "format": "xml", "expectOperator": "Orange", "expectCountry": "France" },
+  { "file": "raex-xml/OrangeFrance_RAEX_v2.xml", "format": "xml", "expectOperator": "Orange", "expectCountry": "France" },
+  { "file": "ir21-docx/TMobileUS_IR21_v1.docx", "format": "docx", "expectOperator": "T-Mobile", "expectCountry": "USA" },
+  { "file": "ir21-docx/TMobileUS_IR21_v2.docx", "format": "docx", "expectOperator": "T-Mobile", "expectCountry": "USA" },
+  { "file": "ir21-pdf/BSNLIndia_IR21_v1.pdf", "format": "pdf", "expectOperator": "Airtel", "expectCountry": "India" },
+  { "file": "ir21-pdf/BSNLIndia_IR21_v2.pdf", "format": "pdf", "expectOperator": "Airtel", "expectCountry": "India" },
+  { "file": "ir21-xlsx/TelefonicaEspana_IR21_v1.xlsx", "format": "xlsx", "expectOperator": "Telefonica", "expectCountry": "Spain" },
+  { "file": "ir21-xlsx/TelefonicaEspana_IR21_v2.xlsx", "format": "xlsx", "expectOperator": "Telefonica", "expectCountry": "Spain" }
+]

@@ -1,0 +1,16 @@
+GSMA IR21 OPERATOR DOCUMENT
+Operator Name: Airtel India (Bharti Airtel 23 circles)
+Country: India
+TADIG Code: INDJB
+Document Type: IR21
+
+NETWORK TECHNICAL DETAILS
+HLR Global Title: 919820009999
+Signalling Point Code: 5-21-9
+GRX IPX Provider: BICS
+APN Roaming: airtel.in.roaming2
+
+SECURITY & OPERATIONS
+Steering Of Roaming Supported: true
+Fraud Contact Email: fraud-desk@airtel-test.example
+Support Hours: 24x7

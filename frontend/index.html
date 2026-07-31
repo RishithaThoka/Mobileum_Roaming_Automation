@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roaming Control Center · IR.21 / RAEX Operations</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M3 12h18M12 3c2.5 2.7 3.8 6 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-6-3.8-9s1.3-6.3 3.8-9z"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-title">Roaming Control</div>
+        <div class="brand-sub">IR.21 / RAEX Ops</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a href="#/dashboard" data-route="dashboard">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <a href="#/master-repository" data-route="master-repository">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+        <span>Master Repository</span>
+      </a>
+      <a href="#/documents" data-route="documents">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l5 5v13a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1z"/><path d="M14 3v5h5M9 13l2 2 4-4"/></svg>
+        <span>Document Repository</span>
+      </a>
+      <a href="#/approvals" data-route="approvals">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        <span>Approval Workflow</span>
+      </a>
+      <a href="#/production" data-route="production">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6" y2="6"/><line x1="6" y1="18" x2="6" y2="18"/></svg>
+        <span>Production / Deployment</span>
+      </a>
+      <a href="#/audit" data-route="audit">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M4 12h16M4 19h10"/><circle cx="20" cy="19" r="1.6" fill="currentColor" stroke="none"/></svg>
+        <span>Audit Trail</span>
+      </a>
+      <a href="#/workflow-designer" data-route="workflow-designer">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 13.5a7.6 7.6 0 000-3l2-1.4-2-3.4-2.3.8a7.6 7.6 0 00-2.6-1.5L14 2h-4l-.5 2.9a7.6 7.6 0 00-2.6 1.5l-2.3-.8-2 3.4 2 1.4a7.6 7.6 0 000 3l-2 1.5 2 3.4 2.3-.9c.8.6 1.7 1.1 2.6 1.5L10 22h4l.5-3a7.6 7.6 0 002.6-1.5l2.3.9 2-3.4-2-1.5z"/></svg>
+        <span>Workflow Designer</span>
+      </a>
+      <a href="#/network" data-route="network">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/><path d="M2 12h20"/></svg>
+        <span>Global Network</span>
+      </a>
+      <a href="#/settings" data-route="settings">
+        <svg class="nav-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <span>Settings</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div id="smtp-pill" class="pill pill-muted">checking mailer…</div>
+      <div class="sidebar-undo-redo">
+        <button id="undo-btn" class="sidebar-btn" disabled title="Nothing to undo">&#8630; Undo</button>
+        <button id="redo-btn" class="sidebar-btn" disabled title="Nothing to redo">&#8631; Redo</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <header class="topbar">
+      <div class="topbar-left">
+        <div id="page-title">Dashboard</div>
+      </div>
+      <div class="topbar-right" style="display:flex; align-items:center; gap:16px;">
+        <div class="notification-container" style="position:relative;">
+          <button id="notification-bell-btn" class="btn btn-outline btn-sm" style="position:relative; display:flex; align-items:center; gap:6px; padding:6px 10px;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+            <span id="notif-badge" class="notif-badge" style="display:none; background:var(--signal-coral); color:#fff; font-size:10px; font-weight:700; padding:1px 5px; border-radius:10px;">0</span>
+          </button>
+          <div id="notif-dropdown" class="notif-dropdown card" style="display:none; position:absolute; right:0; top:40px; width:340px; max-height:400px; overflow-y:auto; z-index:100; box-shadow:0 8px 24px rgba(0,0,0,0.15); padding:16px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid var(--hairline); padding-bottom:8px;">
+              <strong style="font-size:13px;">Notifications</strong>
+              <button id="notif-read-all-btn" class="btn btn-outline btn-sm" style="font-size:10px; padding:2px 6px;">Mark all read</button>
+            </div>
+            <div id="notif-list-content"></div>
+          </div>
+        </div>
+        <div><span class="live-dot"></span> live feed</div>
+      </div>
+    </header>
+    <div id="view" class="view"></div>
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>

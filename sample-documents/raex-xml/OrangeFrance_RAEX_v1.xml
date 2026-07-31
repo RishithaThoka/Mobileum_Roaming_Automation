@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RAEX>
+  <OperatorProfile>
+    <OperatorName>Orange France</OperatorName>
+    <Country>France</Country>
+    <NetworkID>208-01</NetworkID>
+    <DocumentVersion>1</DocumentVersion>
+    <EffectiveDate>2026-02-01</EffectiveDate>
+  </OperatorProfile>
+  <NetworkTechnical>
+    <HLR_GlobalTitle>33612340000</HLR_GlobalTitle>
+    <SignallingPointCode>3-114-2</SignallingPointCode>
+    <GRX_IPX_Provider>BICS</GRX_IPX_Provider>
+    <APN_Roaming>orange.fr.roaming</APN_Roaming>
+    <InteroperabilityTestingContact>iot-team@orange-test.example</InteroperabilityTestingContact>
+  </NetworkTechnical>
+  <Security>
+    <SteeringOfRoamingSupported>true</SteeringOfRoamingSupported>
+    <FraudContactEmail>fraud-desk@orange-test.example</FraudContactEmail>
+  </Security>
+  <Commercial>
+    <RoamingAgreementType>Bilateral</RoamingAgreementType>
+    <PreferredRoamingPartnerTier>Tier1</PreferredRoamingPartnerTier>
+  </Commercial>
+  <FinancialBilling>
+    <WholesaleVoiceRate>0.0180</WholesaleVoiceRate>
+    <WholesaleDataRatePerMB>0.0045</WholesaleDataRatePerMB>
+    <Currency>EUR</Currency>
+    <SettlementContact>settlements@orange-test.example</SettlementContact>
+  </FinancialBilling>
+  <Operations>
+    <RoamingOperationsManager>Claire Dubois</RoamingOperationsManager>
+    <EscalationContact>noc@orange-test.example</EscalationContact>
+    <SupportHours>24x7</SupportHours>
+  </Operations>
+</RAEX>

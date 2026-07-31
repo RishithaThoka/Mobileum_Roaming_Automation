@@ -1,0 +1,23 @@
+OPERATOR PROFILE
+Operator Name: Orange France
+Country: France
+Network ID: 208-01
+Document Type: RAEX
+
+DESTINATION BANDS & CALL TYPES
+MOC National Rate: 0.0180 EUR/min
+MOC International Rate: 0.0450 EUR/min
+MTC Voice Rate: 0.0050 EUR/min
+MOC SMS Rate: 0.0020 EUR/msg
+PS Data Rate Per MB: 0.0040 EUR/MB
+
+NETWORK TECHNICAL CONFIG
+HLR Global Title: 33612340000
+Signalling Point Code: 3-114-2
+GRX IPX Provider: BICS
+APN Roaming: orange.fr.roaming
+
+SECURITY & CHARGING POLICY
+Steering Of Roaming Supported: true
+Fraud Contact Email: fraud-desk@orange-test.example
+Tax Policy Standard VAT: 20%
