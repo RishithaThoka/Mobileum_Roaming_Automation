@@ -1,4 +1,8 @@
 require('dotenv').config();
+const dns = require('dns');
+if (dns.setDefaultResultOrder) {
+  dns.setDefaultResultOrder('ipv4first'); // Fix IPv6 ENETUNREACH on Render
+}
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
