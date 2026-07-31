@@ -60,8 +60,8 @@ async function notifyStepsAtStatus(workflowId, status) {
     if (!step.approver_email) continue; // no email configured yet for this role
     const itemsForCategory = db.prepare(`SELECT * FROM diff_items WHERE diff_id = ? AND category = ?`).all(diff.id, step.category);
 
-    const approveUrl = `${PORTAL_BASE_URL}/api/approvals/${step.token}/decide?action=approve`;
-    const rejectUrl = `${PORTAL_BASE_URL}/api/approvals/${step.token}/decide?action=reject`;
+    const approveUrl = `${PORTAL_BASE_URL}/#/approve/${step.token}`;
+    const rejectUrl = `${PORTAL_BASE_URL}/#/approve/${step.token}`;
     const viewUrl = `${PORTAL_BASE_URL}/#/documents/${doc.id}/diffs/${diff.id}`;
 
     const result = await sendApprovalEmail({
