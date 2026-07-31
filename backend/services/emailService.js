@@ -6,9 +6,20 @@ function isConfigured() {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
-function getTransport() {
+async function getTransport() {
+  const dns = require('dns').promises;
+  let ipv4Host = process.env.SMTP_HOST;
+  
+  try {
+    // Manually force IPv4 resolution
+    const lookup = await dns.lookup(process.env.SMTP_HOST, { family: 4 });
+    ipv4Host = lookup.address;
+  } catch (e) {
+    console.warn('DNS lookup failed for SMTP host, falling back to original', e.message);
+  }
+
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: ipv4Host,
     port: Number(process.env.SMTP_PORT || 587),
     secure: Number(process.env.SMTP_PORT) === 465,
     ignoreTLS: false,
@@ -17,12 +28,10 @@ function getTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-    // Force Node.js net.Socket to use IPv4 only, ignoring IPv6 records
     tls: {
+      servername: process.env.SMTP_HOST, // Required so Google SSL matches smtp.gmail.com instead of the IP
       rejectUnauthorized: true,
     },
-    // Pass family: 4 to the underlying socket connection
-    family: 4,
   });
 }
 
@@ -80,7 +89,7 @@ async function sendApprovalEmail({ approvalStepId, toEmail, approverName, roleTi
 
   if (isConfigured()) {
     try {
-      const transport = getTransport();
+      const transport = await getTransport();
       await transport.sendMail({
         from: process.env.SMTP_FROM || process.env.SMTP_USER,
         to: toEmail,
