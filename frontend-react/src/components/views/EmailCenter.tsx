@@ -101,9 +101,10 @@ export const EmailCenter: React.FC = () => {
               </div>
 
               {/* Email Body */}
-              <div className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 whitespace-pre-wrap">
-                {currentEmail.body}
-              </div>
+              <div 
+                className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-sans bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800"
+                dangerouslySetInnerHTML={{ __html: currentEmail.body }}
+              />
 
               {/* ATTACHMENT ACTION BAR */}
               {currentEmail.hasAttachment && (
