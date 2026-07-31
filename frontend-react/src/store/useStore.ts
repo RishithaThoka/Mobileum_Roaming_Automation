@@ -130,16 +130,33 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 async function handleFetch(endpoint: string, options?: RequestInit) {
   const token = localStorage.getItem('admin_token');
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options?.headers as Record<string, string> || {}),
   };
+
+  if (!(options?.body instanceof FormData) && !headers['Content-Type']) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   const url = `${API_BASE}${endpoint}`;
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401) {
     localStorage.removeItem('admin_token');
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
   }
+
+  // Wrapper to capture fetch failures with context
+  const originalJson = res.json.bind(res);
+  res.json = async () => {
+    try {
+      return await originalJson();
+    } catch (e) {
+      console.error(`Failed to parse JSON for endpoint: ${url}`, e);
+      throw new Error(`Failed to parse response from ${url}`);
+    }
+  };
+
   return res;
 }
 
@@ -712,7 +729,13 @@ export const useStore = create<AppState>((set, get) => ({
         'Difference Analysis'
       );
     } else {
-      const err = await res.json();
+      let errText = await res.text();
+      let err;
+      try {
+        err = JSON.parse(errText);
+      } catch (e) {
+        throw new Error(`Server returned HTML instead of JSON from ${res.url}. Status: ${res.status}. Response start: ${errText.slice(0, 50)}`);
+      }
       throw new Error(err.error || 'Upload failed');
     }
   },
