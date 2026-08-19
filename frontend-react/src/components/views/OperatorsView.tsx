@@ -48,7 +48,7 @@ export const OperatorsView: React.FC = () => {
                   onClick={async () => {
                     try {
                       const token = localStorage.getItem('admin_token');
-                      const API_BASE = import.meta.env.VITE_API_URL || '';
+                      const API_BASE = (import.meta as any).env.VITE_API_URL || '';
                       const res = await fetch(`${API_BASE}/api/reports/operators/${op.id}/daily`, {
                         headers: { 'Authorization': `Bearer ${token}` }
                       });
