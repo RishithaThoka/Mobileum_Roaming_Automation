@@ -24,6 +24,7 @@
     "pdf-parse": "1.1.1",
     "pdfjs-dist": "^4.4.162",
     "uuid": "^14.0.1",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "pdfkit": "^0.15.0"
   }
 }

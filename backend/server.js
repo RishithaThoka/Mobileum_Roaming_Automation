@@ -26,6 +26,7 @@ app.use('/api/settings', auth.requireAdmin, require('./routes/settings'));
 app.use('/api/admin', auth.requireAdmin, require('./routes/admin'));
 app.use('/api/notifications', auth.requireAdmin, require('./routes/notifications'));
 app.use('/api/master-repository', auth.requireAdmin, require('./routes/masterRepository'));
+app.use('/api/reports', auth.requireAdmin, require('./routes/reports'));
 app.use('/api/workflow', auth.requireAdmin, require('./routes/workflow'));
 app.use('/api/network', auth.requireAdmin, require('./routes/network'));
 app.use('/api/assistant', auth.requireAdmin, require('./routes/assistant'));
@@ -40,12 +41,22 @@ const PORT = process.env.PORT || 4021;
 app.listen(PORT, () => {
   console.log(`IR21/RAEX Roaming Document Control Center running on port ${PORT}`);
 
-  const heartbeatEnabled = (process.env.HEARTBEAT_ENABLED || 'true') !== 'false';
+const heartbeatEnabled = (process.env.HEARTBEAT_ENABLED || 'true') !== 'false';
   const heartbeatIntervalMs = Number(process.env.HEARTBEAT_INTERVAL_MS || 20000);
   if (heartbeatEnabled) {
     heartbeatPoller.start(heartbeatIntervalMs);
     console.log(`Heartbeat poller active — checking each heartbeat operator's watch folder every ${heartbeatIntervalMs / 1000}s`);
   } else {
     console.log('Heartbeat poller disabled (HEARTBEAT_ENABLED=false)');
+  }
+
+  const reportSchedulerEnabled = (process.env.REPORT_SCHEDULE_ENABLED || 'true') !== 'false';
+  const reportIntervalMs = Number(process.env.REPORT_INTERVAL_MS || 86400000); // 24 hours
+  if (reportSchedulerEnabled) {
+    const reportScheduler = require('./services/reportScheduler');
+    reportScheduler.start(reportIntervalMs);
+    console.log(`Report scheduler active — generating operator daily reports every ${reportIntervalMs / 1000 / 60 / 60}h`);
+  } else {
+    console.log('Report scheduler disabled (REPORT_SCHEDULE_ENABLED=false)');
   }
 });

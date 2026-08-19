@@ -43,7 +43,37 @@ export const OperatorsView: React.FC = () => {
                   <p className="text-xs text-slate-500 dark:text-slate-400">{op.country} • TADIG: <span className="font-mono text-blue-600 dark:text-cyan-400 font-bold">{op.code}</span></p>
                 </div>
               </div>
-              <StatusBadge status={op.raexStatus} size="sm" />
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={async () => {
+                    try {
+                      const token = localStorage.getItem('admin_token');
+                      const API_BASE = import.meta.env.VITE_API_URL || '';
+                      const res = await fetch(`${API_BASE}/api/reports/operators/${op.id}/daily`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      if (!res.ok) throw new Error('Failed to download');
+                      const blob = await res.blob();
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `${op.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_daily_report.pdf`;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                      window.URL.revokeObjectURL(url);
+                    } catch (e) {
+                      console.error(e);
+                      alert('Failed to download report. Ensure you are logged in as admin.');
+                    }
+                  }}
+                  className="p-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-cyan-400 dark:hover:bg-blue-800/50 rounded-lg transition-colors border border-blue-200 dark:border-blue-800 flex items-center justify-center group"
+                  title="Download Daily Report"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                </button>
+                <StatusBadge status={op.raexStatus} size="sm" />
+              </div>
             </div>
 
             <div className="p-3.5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-mono">
