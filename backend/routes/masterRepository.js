@@ -1,31 +1,27 @@
+'use strict';
+
 const express = require('express');
-const db = require('../db');
-const router = express.Router();
+const db      = require('../db');
+const router  = express.Router();
 
-router.get('/', (req, res) => {
-  const operators = db.prepare(`SELECT * FROM operators ORDER BY name ASC`).all();
-  const documents = db.prepare(`
-    SELECT d.*, o.name as operator_name, o.region as operator_region, o.country as operator_country
-    FROM documents d
-    JOIN operators o ON d.operator_id = o.id
-    ORDER BY d.created_at DESC
-  `).all();
+router.get('/', async (req, res) => {
+  const operators = await db('operators').orderBy('name', 'asc');
+  const documents = await db('documents as d')
+    .select(['d.*', 'o.name as operator_name', 'o.region as operator_region', 'o.country as operator_country'])
+    .join('operators as o', 'd.operator_id', 'o.id')
+    .orderBy('d.created_at', 'desc');
 
-  const versions = db.prepare(`
-    SELECT v.*, d.operator_id, d.doc_type, d.title as doc_title
-    FROM document_versions v
-    JOIN documents d ON v.document_id = d.id
-    ORDER BY v.version_number DESC
-  `).all();
+  const versions = await db('document_versions as v')
+    .select(['v.*', 'd.operator_id', 'd.doc_type', 'd.title as doc_title'])
+    .join('documents as d', 'v.document_id', 'd.id')
+    .orderBy('v.version_number', 'desc');
 
-  const diffs = db.prepare(`
-    SELECT df.*, d.operator_id
-    FROM diffs df
-    JOIN documents d ON df.document_id = d.id
-    ORDER BY df.created_at DESC
-  `).all();
+  const diffs = await db('diffs as df')
+    .select(['df.*', 'd.operator_id'])
+    .join('documents as d', 'df.document_id', 'd.id')
+    .orderBy('df.created_at', 'desc');
 
-  const diffItems = db.prepare(`SELECT * FROM diff_items`).all();
+  const diffItems = await db('diff_items').select('*');
 
   // Attach diff items to diffs
   const diffItemsMap = {};
@@ -33,10 +29,7 @@ router.get('/', (req, res) => {
     if (!diffItemsMap[item.diff_id]) diffItemsMap[item.diff_id] = [];
     diffItemsMap[item.diff_id].push(item);
   });
-
-  diffs.forEach(df => {
-    df.items = diffItemsMap[df.id] || [];
-  });
+  diffs.forEach(df => { df.items = diffItemsMap[df.id] || []; });
 
   // Map versions and diffs to documents
   const versionsMap = {};
@@ -53,8 +46,9 @@ router.get('/', (req, res) => {
 
   documents.forEach(doc => {
     doc.versions = versionsMap[doc.id] || [];
-    doc.diffs = diffsMap[doc.id] || [];
-    doc.baselineVersion = doc.versions.find(v => v.is_current_baseline === 1) || doc.versions[doc.versions.length - 1] || null;
+    doc.diffs    = diffsMap[doc.id]    || [];
+    doc.baselineVersion = doc.versions.find(v => v.is_current_baseline === 1)
+      || doc.versions[doc.versions.length - 1] || null;
   });
 
   // Group documents by operator
@@ -66,10 +60,10 @@ router.get('/', (req, res) => {
 
   operators.forEach(op => {
     op.documents = opDocsMap[op.id] || [];
-    op.region = op.region || 'Global';
+    op.region    = op.region || 'Global';
   });
 
-  // Group operators by Region
+  // Group operators by region
   const regionsMap = {};
   operators.forEach(op => {
     const reg = op.region || 'Global';
@@ -77,15 +71,11 @@ router.get('/', (req, res) => {
     regionsMap[reg].push(op);
   });
 
-  // Unassigned / Needs Review bucket
   const unassignedDocs = documents.filter(d => !d.operator_id || d.requires_review === 1);
 
   res.json({
-    regions: Object.entries(regionsMap).map(([region, ops]) => ({
-      region,
-      operators: ops
-    })),
-    unassigned: unassignedDocs
+    regions: Object.entries(regionsMap).map(([region, ops]) => ({ region, operators: ops })),
+    unassigned: unassignedDocs,
   });
 });
 

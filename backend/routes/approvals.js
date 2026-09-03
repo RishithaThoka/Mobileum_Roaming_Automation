@@ -1,52 +1,47 @@
+'use strict';
+
 const express = require('express');
 const db = require('../db');
 const workflowEngine = require('../services/workflowEngine');
 const { requireAdmin } = require('./auth');
 const router = express.Router();
 
-router.get('/', requireAdmin, (req, res) => {
-  const steps = db.prepare(`
-    SELECT s.*, w.diff_id, doc.id as document_id, doc.title as document_title, doc.doc_type, o.name as operator_name, o.country as operator_country
-    FROM approval_steps s
-    JOIN approval_workflows w ON s.workflow_id = w.id
-    JOIN diffs df ON w.diff_id = df.id
-    JOIN documents doc ON df.document_id = doc.id
-    JOIN operators o ON doc.operator_id = o.id
-    ORDER BY s.notified_at DESC
-  `).all();
+router.get('/', requireAdmin, async (req, res) => {
+  const steps = await db('approval_steps as s')
+    .select([
+      's.*', 'w.diff_id',
+      'doc.id as document_id', 'doc.title as document_title', 'doc.doc_type',
+      'o.name as operator_name', 'o.country as operator_country',
+    ])
+    .join('approval_workflows as w', 's.workflow_id', 'w.id')
+    .join('diffs as df', 'w.diff_id', 'df.id')
+    .join('documents as doc', 'df.document_id', 'doc.id')
+    .join('operators as o', 'doc.operator_id', 'o.id')
+    .orderBy('s.notified_at', 'desc');
   res.json(steps);
 });
 
-router.get('/token/:token', (req, res) => {
+router.get('/token/:token', async (req, res) => {
   try {
-    const step = db.prepare('SELECT * FROM approval_steps WHERE token = ?').get(req.params.token);
+    const step = await db('approval_steps').where({ token: req.params.token }).first();
     if (!step) return res.status(404).json({ error: 'Step not found or invalid token' });
 
-    const workflow = db.prepare('SELECT * FROM approval_workflows WHERE id = ?').get(step.workflow_id);
-    const diff = db.prepare('SELECT * FROM diffs WHERE id = ?').get(workflow.diff_id);
-    const document = db.prepare('SELECT * FROM documents WHERE id = ?').get(diff.document_id);
-    const operator = db.prepare('SELECT * FROM operators WHERE id = ?').get(document.operator_id);
-    
-    // Scoped diff items: only return items belonging to this step's category/domain
-    const diffItems = db.prepare('SELECT * FROM diff_items WHERE diff_id = ? AND category = ?').all(diff.id, step.category);
+    const workflow  = await db('approval_workflows').where({ id: step.workflow_id }).first();
+    const diff      = await db('diffs').where({ id: workflow.diff_id }).first();
+    const document  = await db('documents').where({ id: diff.document_id }).first();
+    const operator  = await db('operators').where({ id: document.operator_id }).first();
+    const diffItems = await db('diff_items').where({ diff_id: diff.id, category: step.category });
 
-    res.json({
-      step,
-      workflow,
-      diff,
-      document,
-      operator,
-      diffItems
-    });
+    res.json({ step, workflow, diff, document, operator, diffItems });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // Magic-link decision endpoint — reached from the email Approve/Reject buttons.
-router.get('/:token/decide', (req, res) => {
+router.get('/:token/decide', async (req, res) => {
   const action = req.query.action === 'reject' ? 'reject' : 'approve';
-  const result = workflowEngine.decideStep(req.params.token, action, req.query.comment);
+  const result = await workflowEngine.decideStep(req.params.token, action, req.query.comment);
 
   if (result.error) {
     return res.status(400).send(renderPage('Link no longer valid', result.error, '#a12b1f'));
@@ -60,9 +55,9 @@ router.get('/:token/decide', (req, res) => {
 });
 
 // Admin UI decision endpoint
-router.post('/:token/decide', (req, res) => {
+router.post('/:token/decide', async (req, res) => {
   const { action, comment } = req.body;
-  const result = workflowEngine.decideStep(req.params.token, action, comment);
+  const result = await workflowEngine.decideStep(req.params.token, action, comment);
   if (result.error) return res.status(400).json({ error: result.error });
   res.json({ success: true, step: result.step });
 });

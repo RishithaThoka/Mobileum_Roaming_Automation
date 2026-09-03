@@ -45,7 +45,6 @@ function extractOperatorInfo(extractedFields, originalFilename = '') {
   let networkCode = '';
   let docType = 'IR21';
 
-  // 1. Inspect extracted field paths and values for known GSMA fields
   for (const [key, val] of Object.entries(extractedFields || {})) {
     const k = key.toLowerCase();
     const v = String(val || '').trim();
@@ -65,25 +64,15 @@ function extractOperatorInfo(extractedFields, originalFilename = '') {
     }
   }
 
-  // 2. Fallback to filename pattern if name or country is missing
   if (!name && originalFilename) {
     const baseName = originalFilename.split('.')[0].replace(/[-_]?(v\d+|IR21|RAEX)/gi, '').trim();
-    if (baseName) {
-      // Split camelCase or words: "OrangeFrance" -> "Orange France", "TelefonicaEspana" -> "Telefonica Espana"
-      name = baseName.replace(/([a-z])([A-Z])/g, '$1 $2');
-    }
+    if (baseName) name = baseName.replace(/([a-z])([A-Z])/g, '$1 $2');
   }
 
-  // Fallback defaults
   if (!name) name = 'Unknown Operator';
   if (!country) {
-    // Attempt country inferral from name (e.g. "Orange France" -> "France")
     const words = name.split(' ');
-    if (words.length > 1) {
-      country = words[words.length - 1];
-    } else {
-      country = 'Global';
-    }
+    country = words.length > 1 ? words[words.length - 1] : 'Global';
   }
 
   return { name, country, networkCode, docType };
@@ -93,8 +82,7 @@ async function detectAndGetOperator({ extractedFields, originalFilename }) {
   const { name: detectedName, country: detectedCountry, networkCode, docType } = extractOperatorInfo(extractedFields, originalFilename);
   const normName = normalizeName(detectedName);
 
-  // Check exact/normalized match in DB
-  const existingOperators = db.prepare('SELECT * FROM operators').all();
+  const existingOperators = await db('operators').select('*');
   let matchedOp = null;
 
   for (const op of existingOperators) {
@@ -109,22 +97,24 @@ async function detectAndGetOperator({ extractedFields, originalFilename }) {
     return { operator: matchedOp, isNewOperator: false, detectedInfo: { name: detectedName, country: detectedCountry, docType } };
   }
 
-  // No match found -> auto-create new operator
   const newId = uuid();
-  const newOpName = detectedName.trim();
-  const newOpCountry = detectedCountry.trim() || 'Global';
+  await db('operators').insert({
+    id: newId,
+    name: detectedName.trim(),
+    country: (detectedCountry.trim() || 'Global'),
+    normalized_name: normName,
+    network_code: networkCode || '',
+    ingest_mode: 'push',
+    default_doc_type: docType,
+    auto_created: 1,
+    status: 'active',
+  });
 
-  db.prepare(`
-    INSERT INTO operators (id, name, country, normalized_name, network_code, ingest_mode, default_doc_type, auto_created, status)
-    VALUES (?, ?, ?, ?, ?, 'push', ?, 1, 'active')
-  `).run(newId, newOpName, newOpCountry, normName, networkCode || '', docType);
-
-  const newOperator = db.prepare('SELECT * FROM operators WHERE id = ?').get(newId);
-
+  const newOperator = await db('operators').where({ id: newId }).first();
   return {
     operator: newOperator,
     isNewOperator: true,
-    detectedInfo: { name: detectedName, country: detectedCountry, docType }
+    detectedInfo: { name: detectedName, country: detectedCountry, docType },
   };
 }
 
