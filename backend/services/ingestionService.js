@@ -5,6 +5,7 @@ const { v4: uuid } = require('uuid');
 const db = require('../db');
 const diffEngine        = require('./diffEngine');
 const workflowEngine    = require('./workflowEngine');
+const { ensureWorkflowState, writeSubstage } = workflowEngine;
 const operatorDetector  = require('./ai/operatorDetector');
 const notificationService = require('./notificationService');
 
@@ -43,6 +44,12 @@ async function ingestDocumentVersion({ operatorId, docType, title, filePath, ori
       docType = docType || detected.detectedInfo.docType;
     }
   }
+
+  // ── Extraction + operator detection succeeded — capture real timestamp ──
+  // The document row may not exist yet (first-ever upload), so we capture
+  // the timestamp now and defer the DB write until after the transaction
+  // has produced a valid document.id.
+  const extractionCompletedAt = new Date().toISOString();
 
   if (!operatorId) {
     throw new Error('Unable to identify operator from document content. Flagged for review.');
@@ -89,9 +96,14 @@ async function ingestDocumentVersion({ operatorId, docType, title, filePath, ori
   // Re-read after the transaction so the returned document reflects current_version_id.
   document = await db('documents').where({ id: document.id }).first();
 
+  // ── Workflow state + extraction sub-stage ──────────────────────────────────
+  // document.id is now guaranteed to exist.  Write the deferred extraction
+  // sub-stage using the real timestamp captured before the transaction.
+  await ensureWorkflowState(document.id);
+  await writeSubstage(document.id, 'extraction', 'complete', { completedAt: extractionCompletedAt });
+
   workflowEngine.logAudit('document_version', versionId, 'ingested', operatorId,
     `${source || 'push'} upload: ${originalFilename}`);
-
 
   // Notifications (fire-and-forget)
   if (isNewOpDetected && opRecord && opRecord.id) {
@@ -121,62 +133,114 @@ async function ingestDocumentVersion({ operatorId, docType, title, filePath, ori
       .update({ status: 'superseded' });
   }
 
+  // ── Comparison / Diff / Risk sub-stages ────────────────────────────────────
   let diffResult = null;
   if (versionCount > 0) {
-    // Use active baseline as the comparison base; fall back to most-recent version
-    const prevVersion =
-      await db('document_versions')
-        .where({ document_id: document.id, is_current_baseline: 1 })
-        .whereNot({ id: versionId })
-        .first() ||
-      await db('document_versions')
-        .where({ document_id: document.id })
-        .whereNot({ id: versionId })
-        .orderBy('version_number', 'desc')
-        .orderBy('uploaded_at', 'desc')
-        .first();
+    // Track which sub-stage we're in so that on failure we can mark the
+    // current stage and all downstream stages as 'failed'.
+    let progressStage = 'comparison';
+    try {
+      // ── Comparison: load prior version ────────────────────────────────────
+      const prevVersion =
+        await db('document_versions')
+          .where({ document_id: document.id, is_current_baseline: 1 })
+          .whereNot({ id: versionId })
+          .first() ||
+        await db('document_versions')
+          .where({ document_id: document.id })
+          .whereNot({ id: versionId })
+          .orderBy('version_number', 'desc')
+          .orderBy('uploaded_at', 'desc')
+          .first();
 
-    const prevFields = JSON.parse(prevVersion.extracted_fields || '{}');
-    const versionInfo = {
-      current: `v${versionCount + 1}`,
-      against: `v${prevVersion.version_number}`,
-      current_filename: originalFilename,
-      against_filename: prevVersion.original_filename,
-    };
+      if (!prevVersion) {
+        throw new Error('No prior version found for comparison despite versionCount > 0');
+      }
+      await writeSubstage(document.id, 'comparison', 'complete', { completedAt: new Date().toISOString() });
+      progressStage = 'diff';
 
-    const { items, totalChanges, highestSeverity } = await diffEngine.computeDiff(prevFields, extractedFields, versionInfo);
-    const totalRisk = items.reduce((sum, i) => sum + (i.risk_score || 0), 0);
-    const diffId = uuid();
+      // ── Diff: compute changes + write diff/diff_items ────────────────────
+      const prevFields = JSON.parse(prevVersion.extracted_fields || '{}');
+      const versionInfo = {
+        current: `v${versionCount + 1}`,
+        against: `v${prevVersion.version_number}`,
+        current_filename: originalFilename,
+        against_filename: prevVersion.original_filename,
+      };
 
-    await db('diffs').insert({
-      id: diffId, document_id: document.id,
-      from_version_id: prevVersion.id, to_version_id: versionId,
-      total_changes: totalChanges, highest_severity: highestSeverity,
-      status: totalChanges > 0 ? 'pending_workflow' : 'no_changes',
-      overall_risk_score: totalRisk,
+      const { items, totalChanges, highestSeverity } = await diffEngine.computeDiff(prevFields, extractedFields, versionInfo);
+      const totalRisk = items.reduce((sum, i) => sum + (i.risk_score || 0), 0);
+      const diffId = uuid();
+
+      await db('diffs').insert({
+        id: diffId, document_id: document.id,
+        from_version_id: prevVersion.id, to_version_id: versionId,
+        total_changes: totalChanges, highest_severity: highestSeverity,
+        status: totalChanges > 0 ? 'pending_workflow' : 'no_changes',
+        overall_risk_score: totalRisk,
+      });
+
+      if (items.length > 0) {
+        await db('diff_items').insert(items.map(i => ({
+          id: uuid(), diff_id: diffId,
+          field_path: i.field_path, category: i.category,
+          domain: i.domain || i.category, change_type: i.change_type,
+          old_value: i.old_value, new_value: i.new_value,
+          severity: i.severity, needs_review: i.needs_review || 0,
+          risk_score: i.risk_score || 0, impact_level: i.impact_level || 'Minor',
+          ai_analysis: JSON.stringify(i.ai_analysis || {}),
+          affected: JSON.stringify(i.affected || {}),
+        })));
+      }
+      await writeSubstage(document.id, 'diff', 'complete', { completedAt: new Date().toISOString() });
+      progressStage = 'risk';
+
+      // ── Risk: scores already computed by computeDiff + written in diff_items ──
+      await writeSubstage(document.id, 'risk', 'complete', { completedAt: new Date().toISOString() });
+      progressStage = 'done';
+
+      workflowEngine.logAudit('diff', diffId, 'computed', 'system',
+        `${totalChanges} change(s) detected, highest severity: ${highestSeverity}`);
+
+      let workflowId = null;
+      if (totalChanges > 0) {
+        workflowId = await workflowEngine.createWorkflowForDiff(diffId);
+      }
+      diffResult = { diffId, totalChanges, highestSeverity, workflowId };
+
+      // All 4 sub-stages resolved → transition to ready_for_approval
+      await db('document_workflow_state')
+        .where({ document_id: document.id, stage_status: 'running' })
+        .update({ stage_status: 'ready_for_approval', updated_at: new Date().toISOString() });
+
+    } catch (err) {
+      // Write 'failed' for the stage that threw and all downstream stages
+      const stages = ['comparison', 'diff', 'risk'];
+      const failIdx = stages.indexOf(progressStage);
+      if (failIdx >= 0) {
+        for (let i = failIdx; i < stages.length; i++) {
+          await writeSubstage(document.id, stages[i], 'failed', {
+            error: i === failIdx ? err.message : `Upstream substage '${progressStage}' failed`,
+          });
+        }
+      }
+      throw err;  // preserve existing behavior: caller receives the error
+    }
+  } else {
+    // ── First version — comparison/diff/risk are not applicable ────────────
+    await writeSubstage(document.id, 'comparison', 'not_applicable', {
+      reason: 'First version \u2014 no prior version to compare against',
     });
-
-    if (items.length > 0) {
-      await db('diff_items').insert(items.map(i => ({
-        id: uuid(), diff_id: diffId,
-        field_path: i.field_path, category: i.category,
-        domain: i.domain || i.category, change_type: i.change_type,
-        old_value: i.old_value, new_value: i.new_value,
-        severity: i.severity, needs_review: i.needs_review || 0,
-        risk_score: i.risk_score || 0, impact_level: i.impact_level || 'Minor',
-        ai_analysis: JSON.stringify(i.ai_analysis || {}),
-        affected: JSON.stringify(i.affected || {}),
-      })));
-    }
-
-    workflowEngine.logAudit('diff', diffId, 'computed', 'system',
-      `${totalChanges} change(s) detected, highest severity: ${highestSeverity}`);
-
-    let workflowId = null;
-    if (totalChanges > 0) {
-      workflowId = await workflowEngine.createWorkflowForDiff(diffId);
-    }
-    diffResult = { diffId, totalChanges, highestSeverity, workflowId };
+    await writeSubstage(document.id, 'diff', 'not_applicable', {
+      reason: 'First version \u2014 no prior version to diff',
+    });
+    await writeSubstage(document.id, 'risk', 'not_applicable', {
+      reason: 'First version \u2014 no risk assessment without a diff',
+    });
+    // All 4 sub-stages resolved → transition to ready_for_approval
+    await db('document_workflow_state')
+      .where({ document_id: document.id, stage_status: 'running' })
+      .update({ stage_status: 'ready_for_approval', updated_at: new Date().toISOString() });
   }
 
   return { document, versionId, diff: diffResult };
@@ -247,6 +311,40 @@ async function recalculateAllDiffs() {
         }
       }
       updatedCount++;
+    }
+
+    // ── Write sub-stage state for this document ──────────────────────────────
+    if (versions.length > 0) {
+      const latestVer = versions[versions.length - 1];
+      await ensureWorkflowState(doc.id);
+      await writeSubstage(doc.id, 'extraction', 'complete', {
+        completedAt: latestVer.uploaded_at || new Date().toISOString(),
+      });
+
+      if (versions.length > 1) {
+        // Diffs were (re)computed — all sub-stages complete
+        const now = new Date().toISOString();
+        await writeSubstage(doc.id, 'comparison', 'complete', { completedAt: now });
+        await writeSubstage(doc.id, 'diff',       'complete', { completedAt: now });
+        await writeSubstage(doc.id, 'risk',       'complete', { completedAt: now });
+        await db('document_workflow_state')
+          .where({ document_id: doc.id, stage_status: 'running' })
+          .update({ stage_status: 'ready_for_approval', updated_at: now });
+      } else {
+        // Single version — no prior version to compare
+        await writeSubstage(doc.id, 'comparison', 'not_applicable', {
+          reason: 'First version \u2014 no prior version to compare against',
+        });
+        await writeSubstage(doc.id, 'diff', 'not_applicable', {
+          reason: 'First version \u2014 no prior version to diff',
+        });
+        await writeSubstage(doc.id, 'risk', 'not_applicable', {
+          reason: 'First version \u2014 no risk assessment without a diff',
+        });
+        await db('document_workflow_state')
+          .where({ document_id: doc.id, stage_status: 'running' })
+          .update({ stage_status: 'ready_for_approval', updated_at: new Date().toISOString() });
+      }
     }
   }
   return updatedCount;

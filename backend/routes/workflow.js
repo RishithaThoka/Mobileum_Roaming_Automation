@@ -4,20 +4,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { v4: uuid } = require('uuid');
-
-// Ensures a workflow_state row exists for the given document. Returns the row.
-async function ensureWorkflowState(docId) {
-  let state = await db('document_workflow_state').where({ document_id: docId }).first();
-  if (!state) {
-    const id = 'wf_' + Date.now();
-    await db('document_workflow_state').insert({
-      id, document_id: docId, current_screen: 1,
-      stage_status: 'running', updated_at: new Date().toISOString(),
-    });
-    state = await db('document_workflow_state').where({ document_id: docId }).first();
-  }
-  return state;
-}
+const { ensureWorkflowState } = require('../services/workflowEngine');
 
 router.get('/rollback-queue', async (req, res) => {
   try {
@@ -89,35 +76,68 @@ router.post('/rollback/:versionId', async (req, res) => {
   }
 });
 
+// ─── Sub-stage title map ──────────────────────────────────────────────────────
+const SUBSTAGE_TITLES = {
+  extraction: 'AI Extraction',
+  comparison: 'Version Comparison',
+  diff:       'Difference Analysis',
+  risk:       'Risk Assessment',
+};
+const SUBSTAGE_IDS = ['extraction', 'comparison', 'diff', 'risk'];
+
+/**
+ * Build best-effort sub-stage state for legacy documents that pre-date the
+ * document_workflow_substages table.  Infers from actual DB artefacts.
+ * Every returned entry carries `legacy_inferred: true`.
+ */
+function inferLegacySubstages(latestVersion, versionCount, diff, diffItems) {
+  const make = (id, status, overrides = {}) => ({
+    id,
+    title: SUBSTAGE_TITLES[id],
+    status,
+    completed_at:  overrides.completed_at  || null,
+    error_message: overrides.error_message || null,
+    reason:        overrides.reason        || null,
+    legacy_inferred: true,
+  });
+
+  const stages = [];
+
+  // Extraction: infer from extracted_fields presence
+  if (latestVersion && latestVersion.extracted_fields) {
+    stages.push(make('extraction', 'complete', { completed_at: latestVersion.uploaded_at || null }));
+  } else {
+    stages.push(make('extraction', 'pending'));
+  }
+
+  // Comparison / Diff / Risk
+  if (versionCount <= 1) {
+    const reason = 'First version \u2014 no prior version to compare against';
+    stages.push(make('comparison', 'not_applicable', { reason }));
+    stages.push(make('diff',       'not_applicable', { reason: 'First version \u2014 no prior version to diff' }));
+    stages.push(make('risk',       'not_applicable', { reason: 'First version \u2014 no risk assessment without a diff' }));
+  } else if (diff) {
+    const ts = diff.created_at || null;
+    stages.push(make('comparison', 'complete', { completed_at: ts }));
+    stages.push(make('diff',       'complete', { completed_at: ts }));
+    stages.push(make('risk',       'complete', { completed_at: ts }));
+  } else {
+    // Multiple versions but no diff row — genuinely ambiguous
+    stages.push(make('comparison', 'pending'));
+    stages.push(make('diff',       'pending'));
+    stages.push(make('risk',       'pending'));
+  }
+
+  return stages;
+}
+
 // GET /api/workflow/:docId
 router.get('/:docId', async (req, res) => {
   const { docId } = req.params;
   try {
     let state = await ensureWorkflowState(docId);
 
-    let subStages = [
-      { id: 'extraction',  title: 'AI Extraction',       status: 'pending' },
-      { id: 'comparison',  title: 'Version Comparison',  status: 'pending' },
-      { id: 'diff',        title: 'Difference Analysis', status: 'pending' },
-      { id: 'risk',        title: 'Risk Assessment',     status: 'pending' },
-    ];
-
-    if (state.current_screen === 1 && state.stage_status === 'running') {
-      const elapsed = Date.now() - new Date(state.updated_at).getTime();
-      if (elapsed > 2000) subStages[0].status = 'complete'; else if (elapsed > 0) subStages[0].status = 'running';
-      if (elapsed > 4000) subStages[1].status = 'complete'; else if (elapsed > 2000) subStages[1].status = 'running';
-      if (elapsed > 6000) subStages[2].status = 'complete'; else if (elapsed > 4000) subStages[2].status = 'running';
-      if (elapsed > 8000) {
-        subStages[3].status = 'complete';
-        await db('document_workflow_state').where({ id: state.id }).update({ stage_status: 'ready_for_approval' });
-        state.stage_status = 'ready_for_approval';
-      } else if (elapsed > 6000) {
-        subStages[3].status = 'running';
-      }
-    } else if (state.current_screen > 1 || state.stage_status !== 'running') {
-      subStages.forEach(s => s.status = 'complete');
-    }
-
+    // ── Data queries (unchanged from original) ───────────────────────────────
     const doc           = await db('documents').where({ id: docId }).first();
     const baseline      = await db('document_versions').where({ document_id: docId, is_current_baseline: 1 }).first();
     const latestVersion = await db('document_versions').where({ document_id: docId }).orderBy('version_number', 'desc').first();
@@ -146,6 +166,53 @@ router.get('/:docId', async (req, res) => {
       risk: { level: riskLevel, details: diff ? `${diff.total_changes} changes detected across ${domains.length} domains.` : 'No diff available.' },
     };
 
+    // ── Real sub-stage state (or legacy inference) ────────────────────────────
+    const substageRows = await db('document_workflow_substages')
+      .where({ document_id: docId });
+
+    let subStages;
+
+    if (substageRows.length > 0) {
+      // Build from persisted rows; fill any missing substage as 'pending'
+      const byId = {};
+      substageRows.forEach(r => { byId[r.substage_id] = r; });
+
+      subStages = SUBSTAGE_IDS.map(id => {
+        const row = byId[id];
+        return {
+          id,
+          title: SUBSTAGE_TITLES[id],
+          status:        row ? row.status        : 'pending',
+          completed_at:  row ? row.completed_at  : null,
+          error_message: row ? row.error_message : null,
+          reason:        row ? row.reason        : null,
+          legacy_inferred: false,
+        };
+      });
+    } else {
+      // Legacy document — infer from actual DB artefacts
+      const versionCount = latestVersion ? latestVersion.version_number : 0;
+      subStages = inferLegacySubstages(latestVersion, versionCount, diff, diffItems);
+    }
+
+    // ── Safety-net stage_status transition ────────────────────────────────────
+    // If all 4 sub-stages are resolved (complete or not_applicable — none
+    // pending or failed) and stage_status is still 'running', transition to
+    // 'ready_for_approval'.  This is a backup — the primary transition
+    // happens in ingestionService at ingestion time.
+    if (state.stage_status === 'running') {
+      const allResolved = subStages.every(
+        s => s.status === 'complete' || s.status === 'not_applicable'
+      );
+      if (allResolved) {
+        await db('document_workflow_state')
+          .where({ id: state.id })
+          .update({ stage_status: 'ready_for_approval', updated_at: new Date().toISOString() });
+        state = { ...state, stage_status: 'ready_for_approval' };
+      }
+    }
+
+    // ── Approval chain (unchanged) ───────────────────────────────────────────
     const signatures       = await db('approval_signatures').where({ document_id: docId }).orderBy('signed_at', 'asc');
     const deployment_logs  = await db('deployment_log').where({ document_id: docId }).orderBy('order_executed', 'asc');
     const routing          = await db('category_routing').select('*');

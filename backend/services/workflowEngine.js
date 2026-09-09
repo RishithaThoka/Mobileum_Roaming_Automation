@@ -162,6 +162,64 @@ async function decideStep(token, action, comment) {
   return { status: newStatus, step };
 }
 
+// ─── Shared workflow-state utilities ──────────────────────────────────────────
+
+/**
+ * Ensures a document_workflow_state row exists for the given document.
+ * Returns the (possibly pre-existing) row.
+ *
+ * Race-safe: uses INSERT … ON CONFLICT IGNORE backed by a UNIQUE index on
+ * document_id (added in migration 003), so concurrent callers never produce
+ * duplicate rows.
+ */
+async function ensureWorkflowState(docId) {
+  await db('document_workflow_state')
+    .insert({
+      id: 'wf_' + Date.now(),
+      document_id: docId,
+      current_screen: 1,
+      stage_status: 'running',
+      updated_at: new Date().toISOString(),
+    })
+    .onConflict('document_id')
+    .ignore();
+  return db('document_workflow_state').where({ document_id: docId }).first();
+}
+
+/**
+ * Persist (upsert) the status of a single workflow sub-stage.
+ *
+ * @param {string} documentId – the document this sub-stage belongs to
+ * @param {string} substageId – one of: extraction, comparison, diff, risk
+ * @param {string} status     – pending | complete | failed | not_applicable
+ * @param {object} [opts]
+ * @param {string} [opts.completedAt] – ISO timestamp (defaults to NOW when status=complete)
+ * @param {string} [opts.error]       – error message (when status=failed)
+ * @param {string} [opts.reason]      – explanation  (when status=not_applicable)
+ *
+ * Swallows its own DB errors so that sub-stage tracking never blocks
+ * the primary ingestion path.
+ */
+async function writeSubstage(documentId, substageId, status, opts = {}) {
+  try {
+    const row = {
+      id: `${documentId}_${substageId}`,
+      document_id: documentId,
+      substage_id: substageId,
+      status,
+      completed_at: opts.completedAt || (status === 'complete' ? new Date().toISOString() : null),
+      error_message: opts.error || null,
+      reason: opts.reason || null,
+    };
+    await db('document_workflow_substages')
+      .insert(row)
+      .onConflict(['document_id', 'substage_id'])
+      .merge();
+  } catch (err) {
+    console.error(`[writeSubstage] Failed to write ${substageId}=${status} for doc ${documentId}: ${err.message}`);
+  }
+}
+
 // Fire-and-forget audit log writer. Callers do not await this.
 function logAudit(entityType, entityId, action, actor, details) {
   db('audit_log').insert({
@@ -170,4 +228,7 @@ function logAudit(entityType, entityId, action, actor, details) {
   }).catch(err => console.error('[audit_log] write error:', err.message));
 }
 
-module.exports = { createWorkflowForDiff, decideStep, notifyStepsAtStatus, logAudit };
+module.exports = {
+  createWorkflowForDiff, decideStep, notifyStepsAtStatus, logAudit,
+  ensureWorkflowState, writeSubstage,
+};

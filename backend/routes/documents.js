@@ -77,12 +77,14 @@ router.delete('/:id', async (req, res) => {
   const workflows   = diffIds.length ? await db('approval_workflows').whereIn('diff_id', diffIds) : [];
   const workflowIds = workflows.map(w => w.id);
   const steps       = workflowIds.length ? await db('approval_steps').whereIn('workflow_id', workflowIds) : [];
+  const substages   = await db('document_workflow_substages').where({ document_id: document.id });
 
   const snapshot = [
     { table: 'approval_steps',     rows: steps },
     { table: 'approval_workflows', rows: workflows },
     { table: 'diff_items',         rows: diffItems },
     { table: 'diffs',              rows: diffs },
+    { table: 'document_workflow_substages', rows: substages },
     { table: 'document_versions',  rows: versions },
     { table: 'documents',          rows: [document] },
   ];
@@ -92,6 +94,7 @@ router.delete('/:id', async (req, res) => {
     if (workflows.length) await trx('approval_workflows').whereIn('id', workflows.map(w => w.id)).del();
     if (diffItems.length) await trx('diff_items').whereIn('id', diffItems.map(i => i.id)).del();
     if (diffs.length)     await trx('diffs').whereIn('id', diffs.map(d => d.id)).del();
+    if (substages.length) await trx('document_workflow_substages').where({ document_id: document.id }).del();
     if (versions.length)  await trx('document_versions').whereIn('id', versions.map(v => v.id)).del();
     await trx('documents').where({ id: document.id }).del();
   });
