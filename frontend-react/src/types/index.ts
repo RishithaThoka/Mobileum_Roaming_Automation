@@ -12,7 +12,7 @@ export type UserRole =
 
 export type ProductTier = 'Tier 1 - Entry' | 'Tier 2 - Mid' | 'Tier 3 - Advanced';
 
-export type StepStatus = 'completed' | 'current' | 'upcoming' | 'rejected' | 'waiting';
+export type StepStatus = 'completed' | 'current' | 'upcoming' | 'rejected' | 'waiting' | 'not_applicable';
 
 export interface WorkflowStepDefinition {
   id: number;
@@ -26,6 +26,55 @@ export interface WorkflowStepDefinition {
   isRequiredActionDone: boolean;
   validationErrorMessage?: string;
   nextStepName: string;
+}
+
+// ── Backend workflow API response shapes ───────────────────────────────────────
+
+export interface BackendSubstage {
+  id: 'extraction' | 'comparison' | 'diff' | 'risk';
+  title: string;
+  status: 'pending' | 'complete' | 'failed' | 'not_applicable';
+  completed_at: string | null;
+  error_message: string | null;
+  reason: string | null;
+  legacy_inferred: boolean;
+}
+
+export interface WorkflowApiResponse {
+  state: {
+    id: string;
+    document_id: string;
+    current_screen: number;
+    // running | ready_for_approval | in_approval | approved | rejected
+    // deploying | deployed | failed | rolled_back
+    stage_status: string;
+    updated_at: string;
+  };
+  subStages: BackendSubstage[];
+  payloadData: {
+    extraction: any;
+    comparison: { baseline: string; latest: string };
+    diff: any[];
+    risk: { level: string; details: string };
+  };
+  domains: string[];
+  approvalChain: Array<{
+    domain: string;
+    role: string;
+    status: 'Pending' | 'Approved' | 'Rejected';
+    signature: any | null;
+  }>;
+  signatures: any[];
+  deployment_logs: Array<{
+    id: string;
+    document_id: string;
+    system: string;
+    scope: string;
+    order_executed: number;
+    pass_fail: 'pass' | 'fail';
+    rollback_triggered: number;
+    timestamp: string;
+  }>;
 }
 
 export interface RolePermission {

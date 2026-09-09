@@ -11,6 +11,7 @@ import {
   ConnectedOperator,
   AuditLogItem,
   WorkflowStepDefinition,
+  WorkflowApiResponse,
   OutlookEmailCategory
 } from '../types';
 import { WORKFLOW_STEPS_DATA } from '../data/workflowStepsData';
@@ -45,6 +46,9 @@ interface AppState {
   workflowSteps: WorkflowStepDefinition[];
   currentWorkflowStepId: number;
   autoRedirect: AutoRedirectState;
+  // Per-document real workflow state (fetched when a document is selected)
+  selectedDocWorkflow: WorkflowApiResponse | null;
+  workflowLoading: boolean;
 
   // Selected entities for modals
   selectedDocId: string | null;
@@ -82,6 +86,7 @@ interface AppState {
   setSelectedDocId: (id: string | null) => void;
   setSelectedNodeId: (id: string | null) => void;
   setQuickUploadOpen: (open: boolean) => void;
+  fetchDocumentWorkflow: (docId: string) => Promise<void>;
 
   // Workflow Navigation Actions
   goToNextStep: () => void;
@@ -206,7 +211,7 @@ export const useStore = create<AppState>((set, get) => ({
   smtpStatus: null,
 
   workflowSteps: WORKFLOW_STEPS_DATA,
-  currentWorkflowStepId: 4, // Default to Step 4 (Difference Analysis)
+  currentWorkflowStepId: 4,
   autoRedirect: {
     open: false,
     message: '',
@@ -214,6 +219,8 @@ export const useStore = create<AppState>((set, get) => ({
     nextStepName: 'Difference Analysis',
     countdown: 3,
   },
+  selectedDocWorkflow: null,
+  workflowLoading: false,
 
   selectedDocId: null,
   selectedNodeId: null,
@@ -337,9 +344,34 @@ export const useStore = create<AppState>((set, get) => ({
   prevOnboardingStep: () => {},
   endOnboarding: () => {},
 
-  setSelectedDocId: (id) => set({ selectedDocId: id }),
+  setSelectedDocId: (id) => {
+    set({ selectedDocId: id });
+    if (id) {
+      // Auto-fetch real workflow state whenever a document is selected
+      get().fetchDocumentWorkflow(id);
+    } else {
+      // Clear workflow state when deselecting
+      set({ selectedDocWorkflow: null, workflowLoading: false });
+    }
+  },
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
   setQuickUploadOpen: (open) => set({ quickUploadOpen: open }),
+
+  fetchDocumentWorkflow: async (docId) => {
+    set({ workflowLoading: true });
+    try {
+      const res = await handleFetch(`/api/workflow/${docId}`);
+      if (res.ok) {
+        const data: WorkflowApiResponse = await res.json();
+        set({ selectedDocWorkflow: data, workflowLoading: false });
+      } else {
+        // Non-2xx (e.g. 404 for a doc with no state yet) — clear rather than crash
+        set({ selectedDocWorkflow: null, workflowLoading: false });
+      }
+    } catch {
+      set({ selectedDocWorkflow: null, workflowLoading: false });
+    }
+  },
 
   goToNextStep: () => {
     const currentId = get().currentWorkflowStepId;

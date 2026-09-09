@@ -234,11 +234,47 @@ router.get('/:docId', async (req, res) => {
 });
 
 // POST /api/workflow/:docId/advance
+// Gate: screen=2 requires all 4 substages resolved; screen=3 requires approval done.
 router.post('/:docId/advance', async (req, res) => {
   const { docId } = req.params;
-  const { screen } = req.body;
+  // Coerce to number — body parsers may deliver this as string or number
+  // depending on caller; === 2 must not silently fail due to type mismatch.
+  const screen = Number(req.body.screen);
+  console.log(`[advance] docId=${docId} screen=${screen} (raw=${JSON.stringify(req.body.screen)})`);
   try {
     await ensureWorkflowState(docId);
+
+    if (screen === 2) {
+      // All 4 substages must be complete or not_applicable before entering approval.
+      const substages = await db('document_workflow_substages').where({ document_id: docId });
+      const required  = ['extraction', 'comparison', 'diff', 'risk'];
+      const byId      = {};
+      substages.forEach(s => { byId[s.substage_id] = s; });
+      const unresolved = required.filter(id => {
+        const s = byId[id];
+        return !s || (s.status !== 'complete' && s.status !== 'not_applicable');
+      });
+      console.log(`[advance] substages found: ${substages.length}, unresolved: ${JSON.stringify(unresolved)}`);
+      if (unresolved.length > 0) {
+        return res.status(409).json({
+          error: 'Cannot advance to approval: substage prerequisites not resolved',
+          unresolved,
+        });
+      }
+    }
+
+    if (screen === 3) {
+      // Approval must be complete before entering deployment.
+      const state = await db('document_workflow_state').where({ document_id: docId }).first();
+      const approvalDone = ['ready_for_approval', 'in_approval', 'approved'];
+      if (!state || !approvalDone.includes(state.stage_status)) {
+        return res.status(409).json({
+          error: 'Cannot advance to deployment: approval workflow is not complete',
+          current_stage_status: state ? state.stage_status : null,
+        });
+      }
+    }
+
     await db('document_workflow_state')
       .where({ document_id: docId })
       .update({ current_screen: screen, stage_status: screen === 2 ? 'in_approval' : 'deploying' });
@@ -247,6 +283,8 @@ router.post('/:docId/advance', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+
 
 // POST /api/workflow/:docId/approve
 router.post('/:docId/approve', async (req, res) => {

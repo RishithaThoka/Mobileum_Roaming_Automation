@@ -1,15 +1,32 @@
 import React from 'react';
-import { ArrowLeft, ArrowRight, Save, CheckCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Save } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { mapWorkflowSteps } from '../../utils/mapWorkflowSteps';
 
 export const WorkflowFooter: React.FC = () => {
-  const { currentWorkflowStepId, workflowSteps, goToNextStep, goToPrevStep } = useStore();
+  const {
+    currentWorkflowStepId,
+    workflowSteps,
+    goToNextStep,
+    goToPrevStep,
+    selectedDocWorkflow,
+    workflowLoading,
+  } = useStore();
 
-  const currentStep = workflowSteps.find((s) => s.id === currentWorkflowStepId) || workflowSteps[0];
-  const nextStep = workflowSteps.find((s) => s.id === currentWorkflowStepId + 1);
+  const computedSteps = mapWorkflowSteps(selectedDocWorkflow, workflowLoading);
+
+  const currentStep  = workflowSteps.find((s) => s.id === currentWorkflowStepId) || workflowSteps[0];
+  const nextStep     = workflowSteps.find((s) => s.id === currentWorkflowStepId + 1);
+  const currentState = computedSteps.find((s) => s.id === currentWorkflowStepId);
 
   const isFirstStep = currentWorkflowStepId === 1;
-  const isLastStep = currentWorkflowStepId === 11;
+  const isLastStep  = currentWorkflowStepId === 11;
+
+  // "Continue" is blocked when the current step is pending/running (not yet resolved).
+  // completed, not_applicable, waiting, and rejected are all treated as resolved
+  // for navigation purposes (the user may need to view rejected steps too).
+  const currentStatus = currentState?.status ?? 'upcoming';
+  const isContinueBlocked = currentStatus === 'upcoming' && selectedDocWorkflow !== null;
 
   return (
     <div className="sticky bottom-0 z-40 w-full bg-white/95 dark:bg-slate-900/95 border-t border-slate-200 dark:border-slate-800 backdrop-blur-md shadow-2xl py-3.5 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
@@ -32,10 +49,12 @@ export const WorkflowFooter: React.FC = () => {
         <span className="hidden sm:inline">Save Draft</span>
       </button>
 
-      {/* Bottom-right: Large Primary Next Step Button */}
+      {/* Bottom-right: Continue */}
       <button
         onClick={goToNextStep}
-        className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs font-black rounded-2xl shadow-lg shadow-blue-600/30 hover:shadow-xl hover:scale-105 transition-all flex items-center space-x-2"
+        disabled={isContinueBlocked}
+        title={isContinueBlocked ? 'Current step not yet resolved — cannot advance' : undefined}
+        className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 disabled:from-slate-400 disabled:to-slate-500 disabled:cursor-not-allowed text-white text-xs font-black rounded-2xl shadow-lg shadow-blue-600/30 hover:shadow-xl hover:scale-105 disabled:scale-100 disabled:shadow-none transition-all flex items-center space-x-2"
       >
         <span>
           {isLastStep ? 'Finish Workflow' : `Continue to ${nextStep?.title || 'Next Step'}`}

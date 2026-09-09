@@ -1,12 +1,41 @@
 import React from 'react';
-import { Layers, Clock, UserCheck, ArrowRight, Activity } from 'lucide-react';
+import { Activity, Loader2, CheckCircle2, MinusCircle, Clock, AlertTriangle, Layers } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { mapWorkflowSteps } from '../../utils/mapWorkflowSteps';
+import { StepStatus } from '../../types';
+
+const STATUS_LABEL: Record<StepStatus, string> = {
+  completed:      'Completed',
+  not_applicable: 'Not Applicable',
+  current:        'In Progress',
+  waiting:        'Awaiting Approval',
+  rejected:       'Rejected',
+  upcoming:       'Upcoming',
+};
+
+const STATUS_CLASSES: Record<StepStatus, string> = {
+  completed:      'text-emerald-600 dark:text-emerald-400',
+  not_applicable: 'text-indigo-600 dark:text-indigo-400',
+  current:        'text-blue-600 dark:text-cyan-400',
+  waiting:        'text-amber-600 dark:text-amber-400',
+  rejected:       'text-rose-600 dark:text-rose-400',
+  upcoming:       'text-slate-400 dark:text-slate-500',
+};
 
 export const WorkflowStatusPanel: React.FC = () => {
-  const { currentWorkflowStepId, workflowSteps } = useStore();
+  const { currentWorkflowStepId, workflowSteps, selectedDocWorkflow, workflowLoading } = useStore();
 
-  const currentStep = workflowSteps.find((s) => s.id === currentWorkflowStepId) || workflowSteps[0];
-  const nextStep = workflowSteps.find((s) => s.id === currentWorkflowStepId + 1);
+  const computedSteps = mapWorkflowSteps(selectedDocWorkflow, workflowLoading);
+
+  const currentStep    = workflowSteps.find((s) => s.id === currentWorkflowStepId) || workflowSteps[0];
+  const nextStep       = workflowSteps.find((s) => s.id === currentWorkflowStepId + 1);
+  const currentComputed = computedSteps.find((s) => s.id === currentWorkflowStepId);
+  const currentStatus: StepStatus = currentComputed?.status ?? 'upcoming';
+
+  // Step 11 gets a distinguishing status label
+  const displayStatus = (currentWorkflowStepId === 11 && currentStatus === 'completed')
+    ? 'Live from ingest'
+    : STATUS_LABEL[currentStatus];
 
   return (
     <div className="p-4 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl space-y-3 shadow-md relative overflow-hidden">
@@ -30,17 +59,24 @@ export const WorkflowStatusPanel: React.FC = () => {
 
         <div className="p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800">
           <div className="text-[10px] text-slate-400 font-bold">STATUS</div>
-          <div className="font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">Completed</div>
+          <div className={`font-extrabold mt-0.5 flex items-center space-x-1 ${STATUS_CLASSES[currentStatus]}`}>
+            {workflowLoading && <Loader2 className="w-3 h-3 animate-spin" />}
+            <span>{workflowLoading ? 'Loading…' : displayStatus}</span>
+          </div>
         </div>
 
         <div className="p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800">
           <div className="text-[10px] text-slate-400 font-bold">NEXT STEP</div>
-          <div className="font-extrabold text-slate-900 dark:text-slate-200 mt-0.5 truncate">{nextStep ? nextStep.title : 'Finish'}</div>
+          <div className="font-extrabold text-slate-900 dark:text-slate-200 mt-0.5 truncate">
+            {nextStep ? nextStep.title : 'Finish'}
+          </div>
         </div>
 
         <div className="p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800">
           <div className="text-[10px] text-slate-400 font-bold">OWNER / EST TIME</div>
-          <div className="font-extrabold text-purple-600 dark:text-purple-400 mt-0.5 truncate">{currentStep.owner} ({currentStep.estimatedTime})</div>
+          <div className="font-extrabold text-purple-600 dark:text-purple-400 mt-0.5 truncate">
+            {currentStep.owner} ({currentStep.estimatedTime})
+          </div>
         </div>
       </div>
     </div>

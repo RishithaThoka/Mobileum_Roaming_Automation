@@ -112,6 +112,11 @@ async function decideStep(token, action, comment) {
     const diff = await db('diffs').where({ id: workflow.diff_id }).first();
     if (diff) {
       await db('document_versions').where({ id: diff.to_version_id }).update({ approval_status: 'rejected' });
+      // Explicitly mark the document's workflow state as rejected so the UI
+      // can show this without inferring it from diff.status.
+      await db('document_workflow_state')
+        .where({ document_id: diff.document_id })
+        .update({ stage_status: 'rejected', updated_at: new Date().toISOString() });
     }
     logAudit('workflow', workflow.id, 'rejected', step.approver_email,
       `Rejected at ${step.role_title} (${step.category}) step`);
@@ -154,6 +159,14 @@ async function decideStep(token, action, comment) {
           .where({ document_id: diff.document_id })
           .whereNot({ id: diff.to_version_id })
           .update({ is_current_baseline: 0 });
+        // Explicitly transition the document workflow state to 'approved' at the
+        // moment all approval steps clear.  The advance endpoint then moves it
+        // onward to 'deploying' — but this intermediate state must exist so Step 6
+        // in the UI can show a real 'approved' fact rather than inferring it from
+        // 'deploying'/'deployed'.
+        await db('document_workflow_state')
+          .where({ document_id: diff.document_id })
+          .update({ stage_status: 'approved', updated_at: new Date().toISOString() });
       }
       logAudit('workflow', workflow.id, 'approved', 'system', 'All approval steps cleared.');
     }
