@@ -189,6 +189,7 @@ async function ingestDocumentVersion({ operatorId, docType, title, filePath, ori
           severity: i.severity, needs_review: i.needs_review || 0,
           risk_score: i.risk_score || 0, impact_level: i.impact_level || 'Minor',
           ai_analysis: JSON.stringify(i.ai_analysis || {}),
+          scoring_method: i.scoring_method || 'deterministic_fallback',
           affected: JSON.stringify(i.affected || {}),
         })));
       }
@@ -300,6 +301,7 @@ async function recalculateAllDiffs() {
           severity: it.severity, needs_review: it.needs_review || 0,
           risk_score: it.risk_score || 0, impact_level: it.impact_level || 'Minor',
           ai_analysis: JSON.stringify(it.ai_analysis || {}),
+          scoring_method: it.scoring_method || 'deterministic_fallback',
           affected: JSON.stringify(it.affected || {}),
         })));
       }

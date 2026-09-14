@@ -1,7 +1,7 @@
 // Drop-in replacement for aiClient.js using Groq (OpenAI-compatible)
 
 function getModel() {
-  return process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  return process.env.GROQ_MODEL || 'openai/gpt-oss-120b';
 }
 
 async function callGemini({ system, prompt, maxTokens = 1024, jsonMode = false }) {
