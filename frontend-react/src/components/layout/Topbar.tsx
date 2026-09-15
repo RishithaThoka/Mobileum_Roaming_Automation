@@ -16,6 +16,15 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 
+/** Derive 1-2 uppercase initials from a full name, e.g. "Rishitha Thoka" → "RT" */
+function getInitials(name: string): string {
+  if (!name) return '??';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '??';
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 export const Topbar: React.FC = () => {
   const {
     darkMode,
@@ -30,13 +39,19 @@ export const Topbar: React.FC = () => {
     markNotificationRead,
     setActiveTab,
     heartbeatStatus,
-    logout
+    logout,
+    userFullName,
+    userEmail
   } = useStore();
 
   const [notifDropdownOpen, setNotifDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const displayName = userFullName || 'User';
+  const displayEmail = userEmail || '';
+  const avatarInitials = getInitials(userFullName);
 
   return (
     <header className="h-16 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-30 flex items-center justify-between px-4 lg:px-6">
@@ -179,7 +194,7 @@ export const Topbar: React.FC = () => {
           >
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 p-0.5 shadow-md">
               <div className="w-full h-full bg-white dark:bg-slate-950 rounded-[10px] flex items-center justify-center text-xs font-bold text-blue-600 dark:text-cyan-400">
-                AD
+                {avatarInitials}
               </div>
             </div>
           </button>
@@ -187,8 +202,8 @@ export const Topbar: React.FC = () => {
           {profileDropdownOpen && (
             <div className="absolute right-0 top-full mt-2 w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95">
               <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
-                <p className="text-xs font-bold text-slate-900 dark:text-slate-200">Mobileum Administrator</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">admin@mobileum.com</p>
+                <p className="text-xs font-bold text-slate-900 dark:text-slate-200">{displayName}</p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">{displayEmail}</p>
               </div>
               <div className="my-1 space-y-1 text-xs">
                 <button

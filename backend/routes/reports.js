@@ -2,9 +2,10 @@ const express = require('express');
 const router = express.Router();
 const reportService = require('../services/reportService');
 const workflowEngine = require('../services/workflowEngine');
+const { requireRole, requireAuth } = require('./auth');
 
 // Generate and stream an operator's daily report
-router.get('/operators/:id/daily', (req, res) => {
+router.get('/operators/:id/daily', requireAuth, (req, res) => {
   const operatorId = req.params.id;
   try {
     const data = reportService.getOperatorReportData(operatorId);
@@ -25,7 +26,7 @@ router.get('/operators/:id/daily', (req, res) => {
 });
 
 // Trigger bulk generation manually
-router.post('/generate-all', async (req, res) => {
+router.post('/generate-all', requireRole('Admin'), async (req, res) => {
   try {
     await reportService.generateAllOperatorReports();
     res.json({ message: 'Bulk report generation triggered successfully' });

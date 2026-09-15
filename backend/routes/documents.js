@@ -10,6 +10,7 @@ const workflowEngine = require('../services/workflowEngine');
 const ingestionService = require('../services/ingestionService');
 
 const router     = express.Router();
+const { requireRole, requireAuth } = require('./auth');
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
@@ -19,8 +20,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// List all documents with operator info and latest status
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   const rows = await db('documents as d')
     .select([
       'd.*',
@@ -33,7 +33,7 @@ router.get('/', async (req, res) => {
   res.json(rows);
 });
 
-router.get('/:id/versions', async (req, res) => {
+router.get('/:id/versions', requireAuth, async (req, res) => {
   const versions = await db('document_versions')
     .select('id', 'version_number', 'original_filename', 'source', 'uploaded_at')
     .where({ document_id: req.params.id })
@@ -41,7 +41,7 @@ router.get('/:id/versions', async (req, res) => {
   res.json(versions);
 });
 
-router.get('/:id/diffs', async (req, res) => {
+router.get('/:id/diffs', requireAuth, async (req, res) => {
   const diffs = await db('diffs')
     .where({ document_id: req.params.id })
     .orderBy('created_at', 'desc');
@@ -49,7 +49,7 @@ router.get('/:id/diffs', async (req, res) => {
 });
 
 // Push-mode upload — runs through the shared ingestionService, same as heartbeat.
-router.post('/upload', upload.single('file'), async (req, res) => {
+router.post('/upload', requireRole('Admin', 'Analyst'), upload.single('file'), async (req, res) => {
   try {
     const { operator_id, doc_type, title } = req.body;
     if (!req.file) return res.status(400).json({ error: 'file is required' });
@@ -66,7 +66,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
 });
 
 // Cascading delete with undo snapshot — children first to satisfy FK constraints.
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('Admin'), async (req, res) => {
   const document = await db('documents').where({ id: req.params.id }).first();
   if (!document) return res.status(404).json({ error: 'Not found' });
 

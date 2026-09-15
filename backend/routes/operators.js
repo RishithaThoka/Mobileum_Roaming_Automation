@@ -6,6 +6,7 @@ const db = require('../db');
 const undoManager    = require('../services/undoManager');
 const workflowEngine = require('../services/workflowEngine');
 const heartbeatPoller = require('../services/heartbeatPoller');
+const { requireRole, requireAuth } = require('./auth');
 const router = express.Router();
 
 function withWatchFolder(operator) {
@@ -39,12 +40,12 @@ function getSimilarity(a, b) {
   return max === 0 ? 1 : 1 - dist / max;
 }
 
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   const operators = await db('operators').orderBy('created_at', 'desc');
   res.json(operators.map(withWatchFolder));
 });
 
-router.get('/:id/space', async (req, res) => {
+router.get('/:id/space', requireAuth, async (req, res) => {
   const operator = await db('operators').where({ id: req.params.id }).first();
   if (!operator) return res.status(404).json({ error: 'Operator not found' });
 
@@ -88,7 +89,7 @@ router.get('/:id/space', async (req, res) => {
   res.json({ operator: withWatchFolder(operator), documents, diffs, activeApprovals, notifications });
 });
 
-router.post('/', async (req, res) => {
+router.post('/', requireRole('Admin'), async (req, res) => {
   const { name, country, network_code, contact_email, ingest_mode, default_doc_type, forceCreate } = req.body;
   if (!name || !country) return res.status(400).json({ error: 'name and country are required' });
 
@@ -120,7 +121,7 @@ router.post('/', async (req, res) => {
   res.json({ isExactMatch: false, operator: withWatchFolder(operator) });
 });
 
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireRole('Admin'), async (req, res) => {
   const existing = await db('operators').where({ id: req.params.id }).first();
   if (!existing) return res.status(404).json({ error: 'Not found' });
   const merged = { ...existing, ...req.body };
@@ -135,7 +136,7 @@ router.patch('/:id', async (req, res) => {
 });
 
 // Cascading delete with undo snapshot — children deleted first to satisfy FK constraints.
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('Admin'), async (req, res) => {
   const operator = await db('operators').where({ id: req.params.id }).first();
   if (!operator) return res.status(404).json({ error: 'Not found' });
 

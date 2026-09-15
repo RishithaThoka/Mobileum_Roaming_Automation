@@ -12,7 +12,16 @@ const fs   = require('fs');
 const path = require('path');
 
 const BASE  = 'http://localhost:4021';
-const CREDS = { username: 'admin', password: 'admin' };
+const CREDS = {
+  username: process.env.VERIFY_USERNAME || '',
+  password: process.env.VERIFY_PASSWORD || '',
+};
+if (!CREDS.username || !CREDS.password) {
+  console.error('FATAL: VERIFY_USERNAME and VERIFY_PASSWORD env vars are required.');
+  console.error('  The old admin/admin credentials no longer work.');
+  console.error('  Run: node scripts/seed_users.js to create accounts first.');
+  process.exit(1);
+}
 
 let adminToken = null;
 

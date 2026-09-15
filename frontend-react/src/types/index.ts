@@ -1,14 +1,9 @@
 export type UserRole =
   | 'Admin'
   | 'Analyst'
-  | 'Document Reviewer'
-  | 'CMO'
-  | 'CTO'
-  | 'Security'
-  | 'Finance'
-  | 'Network Operations'
-  | 'Partner Operator'
-  | 'Read Only Auditor';
+  | 'Approver'
+  | 'CPO/Exec'
+  | 'Auditor';
 
 export type ProductTier = 'Tier 1 - Entry' | 'Tier 2 - Mid' | 'Tier 3 - Advanced';
 
@@ -319,4 +314,5 @@ export type NavigationTab =
   | 'partners'
   | 'analytics'
   | 'ai-assistant'
-  | 'settings';
+  | 'settings'
+  | 'users';

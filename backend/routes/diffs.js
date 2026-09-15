@@ -2,9 +2,10 @@
 
 const express = require('express');
 const db      = require('../db');
+const { requireRole, requireAuth } = require('./auth');
 const router  = express.Router();
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireAuth, async (req, res) => {
   const diff = await db('diffs').where({ id: req.params.id }).first();
   if (!diff) return res.status(404).json({ error: 'Not found' });
 
@@ -48,7 +49,7 @@ router.get('/:id', async (req, res) => {
   res.json({ operator: document ? document.operator_name : 'Unknown Operator', compared_version: comparedVersion, domains, diff, items, workflow, steps });
 });
 
-router.get('/', async (req, res) => {
+router.get('/', requireAuth, async (req, res) => {
   try {
     const rows = await db('diff_items as di')
       .select([
@@ -74,7 +75,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.post('/items/:itemId/resolve', async (req, res) => {
+router.post('/items/:itemId/resolve', requireRole('Admin', 'Analyst'), async (req, res) => {
   try {
     await db('diff_items').where({ id: req.params.itemId }).update({ needs_review: 0 });
     res.json({ success: true });

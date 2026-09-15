@@ -118,7 +118,15 @@ async function main() {
   await db.bootstrap();
 
   // Login
-  const loginRes = await req('POST', '/api/auth/login', { username: 'admin', password: 'admin' });
+  const loginCreds = {
+    username: process.env.VERIFY_USERNAME || '',
+    password: process.env.VERIFY_PASSWORD || '',
+  };
+  if (!loginCreds.username || !loginCreds.password) {
+    console.error('FATAL: VERIFY_USERNAME and VERIFY_PASSWORD env vars required.');
+    process.exit(1);
+  }
+  const loginRes = await req('POST', '/api/auth/login', loginCreds);
   TOKEN = loginRes.body.token;
   if (!TOKEN) { console.error('LOGIN FAILED'); process.exit(1); }
   console.log('✓ Logged in\n');

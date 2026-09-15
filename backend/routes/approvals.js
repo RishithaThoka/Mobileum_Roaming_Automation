@@ -3,10 +3,27 @@
 const express = require('express');
 const db = require('../db');
 const workflowEngine = require('../services/workflowEngine');
-const { requireAdmin } = require('./auth');
+const { requireRole, requireAuth } = require('./auth');
 const router = express.Router();
 
-router.get('/', requireAdmin, async (req, res) => {
+// ─── Helper: check domain authorization for Approver ─────────────────────────
+function checkDomainAuth(user, stepCategory) {
+  if (user.role === 'Admin') return null; // Admin can approve any domain
+  if (user.role !== 'Approver') {
+    return { status: 403, error: 'Forbidden — only Admin or Approver roles can approve' };
+  }
+  const userDomains = JSON.parse(user.approved_domains || '[]');
+  if (!userDomains.includes(stepCategory)) {
+    return {
+      status: 403,
+      error: `Your account is not authorized to approve ${stepCategory} steps. Your domain(s): ${userDomains.join(', ') || 'none'}`,
+    };
+  }
+  return null; // authorized
+}
+
+// ─── GET / — List all approval steps (Admin + Approver) ─────────────────────
+router.get('/', requireRole('Admin', 'Approver'), async (req, res) => {
   const steps = await db('approval_steps as s')
     .select([
       's.*', 'w.diff_id',
@@ -21,7 +38,8 @@ router.get('/', requireAdmin, async (req, res) => {
   res.json(steps);
 });
 
-router.get('/token/:token', async (req, res) => {
+// ─── GET /token/:token — View pending approval detail (requires auth) ───────
+router.get('/token/:token', requireRole('Admin', 'Approver'), async (req, res) => {
   try {
     const step = await db('approval_steps').where({ token: req.params.token }).first();
     if (!step) return res.status(404).json({ error: 'Step not found or invalid token' });
@@ -38,8 +56,24 @@ router.get('/token/:token', async (req, res) => {
   }
 });
 
-// Magic-link decision endpoint — reached from the email Approve/Reject buttons.
-router.get('/:token/decide', async (req, res) => {
+// ─── GET /:token/decide — Email magic-link page (requires auth + domain) ────
+router.get('/:token/decide', requireRole('Admin', 'Approver'), async (req, res) => {
+  // Look up the step to check domain authorization before acting
+  const step = await db('approval_steps').where({ token: req.params.token }).first();
+  if (!step) {
+    return res.status(400).send(renderPage('Link no longer valid', 'This approval token is invalid or expired.', '#a12b1f'));
+  }
+
+  const domainErr = checkDomainAuth(req.user, step.category);
+  if (domainErr) {
+    return res.status(403).send(renderPage(
+      'Access Denied',
+      `Your account (${req.user.username}) is not authorized to approve ${step.category} steps. ` +
+      `Please contact your administrator if you believe this is an error.`,
+      '#a12b1f'
+    ));
+  }
+
   const action = req.query.action === 'reject' ? 'reject' : 'approve';
   const result = await workflowEngine.decideStep(req.params.token, action, req.query.comment);
 
@@ -54,8 +88,15 @@ router.get('/:token/decide', async (req, res) => {
   res.send(renderPage(action === 'approve' ? 'Approved' : 'Rejected', message, action === 'approve' ? '#1c7a4d' : '#a12b1f'));
 });
 
-// Admin UI decision endpoint
-router.post('/:token/decide', async (req, res) => {
+// ─── POST /:token/decide — API decision endpoint (requires auth + domain) ───
+router.post('/:token/decide', requireRole('Admin', 'Approver'), async (req, res) => {
+  // Look up step from DB to verify domain authorization (never trust body for auth)
+  const step = await db('approval_steps').where({ token: req.params.token }).first();
+  if (!step) return res.status(404).json({ error: 'Step not found or invalid token' });
+
+  const domainErr = checkDomainAuth(req.user, step.category);
+  if (domainErr) return res.status(domainErr.status).json({ error: domainErr.error });
+
   const { action, comment } = req.body;
   const result = await workflowEngine.decideStep(req.params.token, action, comment);
   if (result.error) return res.status(400).json({ error: result.error });

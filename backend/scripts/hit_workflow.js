@@ -22,7 +22,15 @@ function req(method, path, body) {
 
 (async () => {
   // Login
-  const login = await req('POST', '/api/auth/login', { username: 'admin', password: 'admin' });
+  const creds = {
+    username: process.env.VERIFY_USERNAME || '',
+    password: process.env.VERIFY_PASSWORD || '',
+  };
+  if (!creds.username || !creds.password) {
+    console.error('FATAL: VERIFY_USERNAME and VERIFY_PASSWORD env vars required.');
+    process.exit(1);
+  }
+  const login = await req('POST', '/api/auth/login', creds);
   const { token } = JSON.parse(login.body);
   if (!token) { console.error('Login failed:', login.body); process.exit(1); }
   req._token = token;

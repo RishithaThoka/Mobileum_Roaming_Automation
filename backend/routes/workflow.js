@@ -5,8 +5,9 @@ const router  = express.Router();
 const db      = require('../db');
 const { v4: uuid } = require('uuid');
 const { ensureWorkflowState } = require('../services/workflowEngine');
+const { requireRole, requireAuth } = require('./auth');
 
-router.get('/rollback-queue', async (req, res) => {
+router.get('/rollback-queue', requireAuth, async (req, res) => {
   try {
     const rows = await db('document_versions as v')
       .select([
@@ -40,7 +41,7 @@ router.get('/rollback-queue', async (req, res) => {
   }
 });
 
-router.post('/rollback/:versionId', async (req, res) => {
+router.post('/rollback/:versionId', requireRole('Admin'), async (req, res) => {
   try {
     const version = await db('document_versions').where({ id: req.params.versionId }).first();
     if (!version) return res.status(404).json({ error: 'Version not found' });
@@ -131,8 +132,7 @@ function inferLegacySubstages(latestVersion, versionCount, diff, diffItems) {
   return stages;
 }
 
-// GET /api/workflow/:docId
-router.get('/:docId', async (req, res) => {
+router.get('/:docId', requireAuth, async (req, res) => {
   const { docId } = req.params;
   try {
     let state = await ensureWorkflowState(docId);
@@ -235,7 +235,7 @@ router.get('/:docId', async (req, res) => {
 
 // POST /api/workflow/:docId/advance
 // Gate: screen=2 requires all 4 substages resolved; screen=3 requires approval done.
-router.post('/:docId/advance', async (req, res) => {
+router.post('/:docId/advance', requireRole('Admin', 'Approver'), async (req, res) => {
   const { docId } = req.params;
   // Coerce to number — body parsers may deliver this as string or number
   // depending on caller; === 2 must not silently fail due to type mismatch.
@@ -287,10 +287,33 @@ router.post('/:docId/advance', async (req, res) => {
 
 
 // POST /api/workflow/:docId/approve
-router.post('/:docId/approve', async (req, res) => {
+// Domain enforcement: derives domain from the DB-side approval step, NOT from req.body.
+router.post('/:docId/approve', requireRole('Admin', 'Approver'), async (req, res) => {
   const { docId } = req.params;
   const { role, approver_name, decision, attestation_method } = req.body;
   try {
+    // Look up the real approval step from DB — this is the source of truth for domain check.
+    const diff = await db('diffs').where({ document_id: docId }).orderBy('created_at', 'desc').first();
+    const workflow = diff ? await db('approval_workflows').where({ diff_id: diff.id }).first() : null;
+    const step = workflow
+      ? await db('approval_steps').where({ workflow_id: workflow.id, role_title: role }).first()
+      : null;
+
+    if (!step) {
+      return res.status(404).json({ error: 'No matching approval step found for this document and role' });
+    }
+
+    // Domain authorization: check the STEP's category (DB truth), never the body
+    if (req.user.role === 'Approver') {
+      const userDomains = JSON.parse(req.user.approved_domains || '[]');
+      if (!userDomains.includes(step.category)) {
+        return res.status(403).json({
+          error: `Your account is not authorized to approve ${step.category} steps. Your domain(s): ${userDomains.join(', ') || 'none'}`,
+        });
+      }
+    }
+    // Admin bypasses domain check.
+
     await db('approval_signatures').insert({
       id: 'sig_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       document_id: docId, stage_role: role, approver_name, decision, attestation_method,
@@ -302,7 +325,7 @@ router.post('/:docId/approve', async (req, res) => {
 });
 
 // POST /api/workflow/:docId/deploy
-router.post('/:docId/deploy', async (req, res) => {
+router.post('/:docId/deploy', requireRole('Admin'), async (req, res) => {
   const { docId } = req.params;
   try {
     await db('deployment_log').where({ document_id: docId }).del();

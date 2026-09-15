@@ -14,22 +14,26 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const auth = require('./routes/auth');
-app.use('/api/auth', auth.router);
+const { router: authRouter, requireRole, requireAuth } = require('./routes/auth');
+app.use('/api/auth', authRouter);
 
-app.use('/api/operators',         auth.requireAdmin, require('./routes/operators'));
-app.use('/api/documents',         auth.requireAdmin, require('./routes/documents'));
-app.use('/api/diffs',             auth.requireAdmin, require('./routes/diffs'));
-app.use('/api/approvals',                            require('./routes/approvals')); // inner routes handle selective public/admin checks
-app.use('/api/dashboard',         auth.requireAdmin, require('./routes/dashboard'));
-app.use('/api/settings',          auth.requireAdmin, require('./routes/settings'));
-app.use('/api/admin',             auth.requireAdmin, require('./routes/admin'));
-app.use('/api/notifications',     auth.requireAdmin, require('./routes/notifications'));
-app.use('/api/master-repository', auth.requireAdmin, require('./routes/masterRepository'));
-app.use('/api/reports',           auth.requireAdmin, require('./routes/reports'));
-app.use('/api/workflow',          auth.requireAdmin, require('./routes/workflow'));
-app.use('/api/network',           auth.requireAdmin, require('./routes/network'));
-app.use('/api/assistant',         auth.requireAdmin, require('./routes/assistant'));
+// Per-route gating inside each router (mixed GET/POST roles):
+app.use('/api/operators',         require('./routes/operators'));
+app.use('/api/documents',         require('./routes/documents'));
+app.use('/api/diffs',             require('./routes/diffs'));
+app.use('/api/approvals',         require('./routes/approvals'));
+app.use('/api/dashboard',         require('./routes/dashboard'));
+app.use('/api/workflow',          require('./routes/workflow'));
+app.use('/api/reports',           require('./routes/reports'));
+
+// Blanket gates — all endpoints share the same role requirement:
+app.use('/api/settings',          requireRole('Admin'),   require('./routes/settings'));
+app.use('/api/admin',             requireRole('Admin'),   require('./routes/admin'));
+app.use('/api/users',             requireRole('Admin'),   require('./routes/users'));
+app.use('/api/notifications',     requireAuth,            require('./routes/notifications'));
+app.use('/api/master-repository', requireAuth,            require('./routes/masterRepository'));
+app.use('/api/network',           requireAuth,            require('./routes/network'));
+app.use('/api/assistant',         requireAuth,            require('./routes/assistant'));
 
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use((req, res, next) => {

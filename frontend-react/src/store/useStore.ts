@@ -37,6 +37,8 @@ interface AppState {
   // Admin Session Auth
   isLoggedIn: boolean;
   token: string | null;
+  userFullName: string;
+  userEmail: string;
 
   // Heartbeat & SMTP Status
   heartbeatStatus: { running: boolean; last_scan?: string; last_summary?: string } | null;
@@ -147,7 +149,14 @@ async function handleFetch(endpoint: string, options?: RequestInit) {
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401) {
     localStorage.removeItem('admin_token');
-    window.location.href = '/login';
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_full_name');
+    localStorage.removeItem('user_email');
+    // Don't redirect if already on login/landing
+    const currentTab = useStore.getState?.()?.activeTab;
+    if (currentTab && currentTab !== 'login' && currentTab !== 'landing') {
+      useStore.getState?.()?.logout?.();
+    }
     throw new Error('Unauthorized');
   }
 
@@ -170,12 +179,40 @@ const getRoleFromActor = (actor: string): string => {
   if (lower === 'system') return 'System';
   if (lower === 'admin') return 'Admin';
   if (lower === 'analyst' || lower.includes('david')) return 'Analyst';
-  if (lower.includes('cto') || lower.includes('routing')) return 'CTO';
-  if (lower.includes('cmo') || lower.includes('commercial')) return 'CMO';
-  if (lower.includes('security') || lower.includes('ciso')) return 'Security';
-  if (lower.includes('finance') || lower.includes('cfo')) return 'Finance';
+  if (lower.includes('approver') || lower.includes('routing') || lower.includes('security') || lower.includes('commercial')) return 'Approver';
+  if (lower.includes('cpo') || lower.includes('exec')) return 'CPO/Exec';
+  if (lower.includes('auditor')) return 'Auditor';
   return 'Admin';
 };
+
+// ── Role-based tab permissions ─────────────────────────────────────────────
+const ALL_TABS: NavigationTab[] = [
+  'dashboard','executive-dashboard','tier-model','ai-roadmap','managed-services',
+  'integration-matrix','governance-pipeline','digital-twin','reconciliation',
+  'documents','master-repo','version-control','difference-checker',
+  'approval-workflow','workflow-viz','notifications','email-center',
+  'audit-logs','rollback-center','operators','global-map','partners',
+  'analytics','ai-assistant','settings','users',
+];
+
+const ROLE_TAB_PERMISSIONS: Record<UserRole, NavigationTab[]> = {
+  'Admin':     ALL_TABS,
+  'Analyst':   ['dashboard','workflow-viz','documents','ai-roadmap','version-control',
+                'difference-checker','governance-pipeline','integration-matrix',
+                'master-repo','operators','notifications','ai-assistant','analytics'],
+  'Approver':  ['dashboard','workflow-viz','approval-workflow','executive-dashboard',
+                'difference-checker','master-repo','notifications','ai-assistant'],
+  'CPO/Exec':  ['dashboard','executive-dashboard','workflow-viz','approval-workflow',
+                'analytics','notifications','ai-assistant','master-repo'],
+  'Auditor':   ['dashboard','workflow-viz','audit-logs','digital-twin','difference-checker',
+                'master-repo','notifications','analytics','ai-assistant'],
+};
+
+export function canAccessTab(role: UserRole, tab: NavigationTab): boolean {
+  if (tab === 'landing' || tab === 'login') return true;
+  const allowed = ROLE_TAB_PERMISSIONS[role];
+  return allowed ? allowed.includes(tab) : false;
+}
 
 // Country metadata lookup for flags, regions, coordinates
 const countryData: Record<string, { flag: string; region: string; lat: number; lng: number }> = {
@@ -206,6 +243,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   isLoggedIn: false,
   token: null,
+  userFullName: localStorage.getItem('user_full_name') || '',
+  userEmail: localStorage.getItem('user_email') || '',
 
   heartbeatStatus: null,
   smtpStatus: null,
@@ -247,8 +286,14 @@ export const useStore = create<AppState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         localStorage.setItem('admin_token', data.token);
+        localStorage.setItem('user_role', data.role);
+        localStorage.setItem('user_full_name', data.full_name || '');
+        localStorage.setItem('user_email', username);
+        const role = (data.role as UserRole) || 'Analyst';
         const nextTab = get().activeTab === 'landing' || get().activeTab === 'login' ? 'dashboard' : get().activeTab;
-        set({ isLoggedIn: true, token: data.token, activeRole: 'Admin', activeTab: nextTab });
+        // If the post-login target tab isn't accessible to this role, redirect to dashboard
+        const finalTab = canAccessTab(role, nextTab) ? nextTab : 'dashboard';
+        set({ isLoggedIn: true, token: data.token, activeRole: role, activeTab: finalTab, userFullName: data.full_name || '', userEmail: username });
         await get().loadAllData();
         return true;
       }
@@ -261,6 +306,9 @@ export const useStore = create<AppState>((set, get) => ({
   logout: () => {
     const token = get().token;
     localStorage.removeItem('admin_token');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_full_name');
+    localStorage.removeItem('user_email');
     const url = `${API_BASE}/api/auth/logout`;
     fetch(url, {
       method: 'POST',
@@ -270,10 +318,12 @@ export const useStore = create<AppState>((set, get) => ({
       } as Record<string, string>,
       body: JSON.stringify({ token })
     }).catch(() => {});
-    localStorage.removeItem('admin_token');
     set({
       isLoggedIn: false,
       token: null,
+      userFullName: '',
+      userEmail: '',
+      activeRole: 'Analyst' as UserRole,
       activeTab: 'landing',
       documents: [],
       deltas: [],
@@ -303,19 +353,32 @@ export const useStore = create<AppState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         if (data.loggedIn) {
+          const role = (data.role as UserRole) || 'Analyst';
+          localStorage.setItem('user_role', role);
+          localStorage.setItem('user_full_name', data.full_name || '');
+          localStorage.setItem('user_email', data.username || '');
           const nextTab = get().activeTab === 'landing' ? 'dashboard' : get().activeTab;
-          set({ isLoggedIn: true, token, activeRole: 'Admin', activeTab: nextTab });
+          const finalTab = canAccessTab(role, nextTab) ? nextTab : 'dashboard';
+          set({ isLoggedIn: true, token, activeRole: role, activeTab: finalTab, userFullName: data.full_name || '', userEmail: data.username || '' });
           await get().loadAllData();
           return;
         }
       }
     } catch (e) {}
     localStorage.removeItem('admin_token');
-    set({ isLoggedIn: false, token: null });
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_full_name');
+    localStorage.removeItem('user_email');
+    set({ isLoggedIn: false, token: null, userFullName: '', userEmail: '' });
   },
 
   setActiveRole: (role) => {
-    // Stub to prevent compilation breaks
+    set({ activeRole: role });
+    // Ensure current tab is accessible to the new role
+    const currentTab = get().activeTab;
+    if (!canAccessTab(role, currentTab)) {
+      set({ activeTab: 'dashboard' });
+    }
   },
 
   setActiveTab: (tab) => {

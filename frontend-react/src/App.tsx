@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStore } from './store/useStore';
+import { useStore, canAccessTab } from './store/useStore';
 import { Topbar } from './components/layout/Topbar';
 import { Sidebar } from './components/layout/Sidebar';
 
@@ -20,6 +20,7 @@ import { AuditLogsView } from './components/views/AuditLogsView';
 import { OperatorsView } from './components/views/OperatorsView';
 import { AnalyticsView } from './components/views/AnalyticsView';
 import { SettingsView } from './components/views/SettingsView';
+import { UsersView } from './components/views/UsersView';
 
 // Additional Workflow Step Views
 import { AIRoadmapView } from './components/views/AIRoadmapView';
@@ -58,11 +59,14 @@ export function App() {
     selectedNodeId,
     setSelectedNodeId,
     isLoggedIn,
+    activeRole,
     checkSession,
+    setActiveTab,
     loadAllData
   } = useStore();
 
   const [approverToken, setApproverToken] = React.useState<string | null>(null);
+  const [pendingApprovalToken, setPendingApprovalToken] = React.useState<string | null>(null);
 
   // Hash-routing listener for /approve/:token magic links
   React.useEffect(() => {
@@ -96,10 +100,30 @@ export function App() {
     return () => clearInterval(interval);
   }, [isLoggedIn, approverToken]);
 
-  // Case 1: Standalone unauthenticated token approver page
+  // Case 1: Approval token link — requires login first
   if (approverToken) {
+    if (!isLoggedIn) {
+      // Store the pending token and show login
+      if (!pendingApprovalToken) setPendingApprovalToken(approverToken);
+      return <Login />;
+    }
     return <TokenApprovalView token={approverToken} />;
   }
+
+  // After successful login, check if there's a pending approval to redirect to
+  React.useEffect(() => {
+    if (isLoggedIn && pendingApprovalToken && !approverToken) {
+      setApproverToken(pendingApprovalToken);
+      setPendingApprovalToken(null);
+    }
+  }, [isLoggedIn, pendingApprovalToken]);
+
+  // Tab guard: if current tab isn't accessible to current role, redirect to dashboard
+  React.useEffect(() => {
+    if (isLoggedIn && activeTab !== 'landing' && activeTab !== 'login' && !canAccessTab(activeRole, activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [activeRole, activeTab, isLoggedIn]);
 
   // Case 2: Landing Page (always full screen)
   if (activeTab === 'landing') {
@@ -165,6 +189,7 @@ export function App() {
             {activeTab === 'operators' && <OperatorsView />}
             {activeTab === 'analytics' && <AnalyticsView />}
             {activeTab === 'settings' && <SettingsView />}
+            {activeTab === 'users' && <UsersView />}
             {activeTab === 'notifications' && <Dashboard />}
             {activeTab === 'master-repo' && <MasterRepositoryView />}
           </main>

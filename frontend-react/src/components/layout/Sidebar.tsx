@@ -26,7 +26,7 @@ import {
   ChevronRight,
   Activity
 } from 'lucide-react';
-import { useStore } from '../../store/useStore';
+import { useStore, canAccessTab } from '../../store/useStore';
 import { NavigationTab } from '../../types';
 
 interface SidebarItem {
@@ -39,7 +39,7 @@ interface SidebarItem {
 }
 
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, approvalChains, deltas, notifications, emails } = useStore();
+  const { activeTab, setActiveTab, activeRole, approvalChains, deltas, notifications, emails } = useStore();
   const [collapsed, setCollapsed] = React.useState(false);
 
   const pendingApprovalsCount = approvalChains.filter((a) => a.status === 'In Progress' || a.status === 'Pending').length;
@@ -71,6 +71,7 @@ export const Sidebar: React.FC = () => {
     { id: 'email-center', label: 'Email Ingestion Daemon', icon: Mail, badge: pendingEmailsCount > 0 ? pendingEmailsCount : undefined, badgeColor: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-400', category: 'Network & Systems' },
     { id: 'notifications', label: 'System Notifications', icon: Bell, badge: unreadNotifsCount > 0 ? unreadNotifsCount : undefined, badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400', category: 'Network & Systems' },
     { id: 'settings', label: 'Platform Configuration', icon: Settings, category: 'Network & Systems' },
+    { id: 'users', label: 'User Management', icon: Users, category: 'Network & Systems' },
   ];
 
   const categories: ('Control Panel' | 'Baseline Pipeline (Steps 1-11)' | 'Network & Systems')[] = [
@@ -120,7 +121,7 @@ export const Sidebar: React.FC = () => {
         {/* Navigation List */}
         <nav className="p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-8rem)]">
           {categories.map((cat) => {
-            const items = SIDEBAR_ITEMS.filter((i) => i.category === cat);
+            const items = SIDEBAR_ITEMS.filter((i) => i.category === cat && canAccessTab(activeRole, i.id));
             return (
               <div key={cat} className="space-y-1">
                 {!collapsed && (

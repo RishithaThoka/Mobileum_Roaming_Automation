@@ -2,9 +2,10 @@
 
 const express = require('express');
 const db      = require('../db');
+const { requireRole, requireAuth } = require('./auth');
 const router  = express.Router();
 
-router.get('/stats', async (req, res) => {
+router.get('/stats', requireAuth, async (req, res) => {
   const count = async (table, where = {}) => {
     const q = db(table).count('* as c');
     if (where.raw) q.whereRaw(where.raw);
@@ -28,23 +29,23 @@ router.get('/stats', async (req, res) => {
   res.json({ operators, documents, pendingDiffs, approvedDiffs, approvedDiffsToday, rejectedDiffs, pendingSteps, emailsSent });
 });
 
-router.get('/audit-log', async (req, res) => {
+router.get('/audit-log', requireRole('Admin', 'Auditor'), async (req, res) => {
   const rows = await db('audit_log').orderBy('timestamp', 'desc').limit(200);
   res.json(rows);
 });
 
-router.get('/email-log', async (req, res) => {
+router.get('/email-log', requireRole('Admin'), async (req, res) => {
   const rows = await db('email_log').orderBy('sent_at', 'desc').limit(100);
   res.json(rows);
 });
 
-router.get('/email-log/:id', async (req, res) => {
+router.get('/email-log/:id', requireRole('Admin'), async (req, res) => {
   const row = await db('email_log').where({ id: req.params.id }).first();
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(row);
 });
 
-router.get('/pipeline', async (req, res) => {
+router.get('/pipeline', requireAuth, async (req, res) => {
   const rows = await db('documents as doc')
     .select([
       'doc.id as document_id', 'doc.title', 'doc.doc_type',
