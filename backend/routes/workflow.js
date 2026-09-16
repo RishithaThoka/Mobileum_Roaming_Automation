@@ -46,21 +46,78 @@ router.post('/rollback/:versionId', requireRole('Admin'), async (req, res) => {
     const version = await db('document_versions').where({ id: req.params.versionId }).first();
     if (!version) return res.status(404).json({ error: 'Version not found' });
 
+    const docId = version.document_id;
+
     await db.transaction(async trx => {
       await trx('document_versions').where({ id: version.id }).update({ is_current_baseline: 1 });
       await trx('document_versions')
-        .where({ document_id: version.document_id })
+        .where({ document_id: docId })
         .whereNot({ id: version.id })
         .update({ is_current_baseline: 0 });
 
-      const hasState = await trx('document_workflow_state').where({ document_id: version.document_id }).first();
+      // ── Revert simulated_network_state using the latest diff's old values ──
+      const diff = await trx('diffs').where({ document_id: docId }).orderBy('created_at', 'desc').first();
+      let fieldsReverted = 0;
+      if (diff) {
+        const diffItems = await trx('diff_items').where({ diff_id: diff.id });
+        for (const item of diffItems) {
+          if (item.change_type === 'added') {
+            // Field didn't exist before — remove it
+            await trx('simulated_network_state')
+              .where({ document_id: docId, field_path: item.field_path })
+              .del();
+            fieldsReverted++;
+          } else if (item.change_type === 'removed') {
+            // Field existed before — restore with old_value
+            await trx('simulated_network_state')
+              .insert({
+                id: uuid(),
+                document_id: docId,
+                field_path: item.field_path,
+                current_value: item.old_value,
+                applied_by_diff_id: null,
+                updated_at: new Date().toISOString(),
+              })
+              .onConflict(['document_id', 'field_path'])
+              .merge({
+                current_value: item.old_value,
+                applied_by_diff_id: null,
+                updated_at: new Date().toISOString(),
+              });
+            fieldsReverted++;
+          } else if (item.change_type === 'modified') {
+            // Field was changed — revert to old_value
+            await trx('simulated_network_state')
+              .where({ document_id: docId, field_path: item.field_path })
+              .update({
+                current_value: item.old_value,
+                applied_by_diff_id: null,
+                updated_at: new Date().toISOString(),
+              });
+            fieldsReverted++;
+          }
+        }
+
+        // Log rollback in deployment_log
+        await trx('deployment_log').insert({
+          id: `dep_rollback_${Date.now()}`,
+          document_id: docId,
+          system: 'Rollback',
+          scope: `Reverted ${fieldsReverted} fields to pre-deployment values (diff ${diff.id.slice(0, 8)})`,
+          order_executed: 0,
+          pass_fail: 'pass',
+          rollback_triggered: 1,
+        });
+      }
+
+      const hasState = await trx('document_workflow_state').where({ document_id: docId }).first();
       if (hasState) {
         await trx('document_workflow_state')
-          .where({ document_id: version.document_id })
+          .where({ document_id: docId })
           .update({ stage_status: 'rolled_back', updated_at: new Date().toISOString() });
       } else {
         await trx('document_workflow_state').insert({
-          id: 'wf_' + Date.now(), document_id: version.document_id,
+          id: 'wf_' + Date.now(), document_id: docId,
           current_screen: 1, stage_status: 'rolled_back',
           updated_at: new Date().toISOString(),
         });
@@ -325,32 +382,205 @@ router.post('/:docId/approve', requireRole('Admin', 'Approver'), async (req, res
 });
 
 // POST /api/workflow/:docId/deploy
+// Real 4-stage sequential pipeline: Precondition → Staging → Production → Reconciliation.
+// Stops on first failure. Writes honest pass/fail into deployment_log.
+//
+// KNOWN LIMITATION: if Reconciliation detects a mismatch, the Production
+// stage's writes to simulated_network_state have ALREADY been committed.
+// A failed reconciliation does NOT auto-rollback those writes — the state
+// remains "wrong" until an operator manually triggers POST /rollback.
 router.post('/:docId/deploy', requireRole('Admin'), async (req, res) => {
   const { docId } = req.params;
+  const simulateMismatch = req.query.simulateMismatch === 'true';
+
   try {
+    // ── Precondition Gate ─────────────────────────────────────────────
+    const state = await db('document_workflow_state').where({ document_id: docId }).first();
+    if (!state || state.stage_status !== 'approved') {
+      return res.status(409).json({
+        error: 'Cannot deploy: document must be fully approved first',
+        current_stage_status: state ? state.stage_status : null,
+      });
+    }
+
+    const diff = await db('diffs').where({ document_id: docId }).orderBy('created_at', 'desc').first();
+    if (!diff) {
+      return res.status(409).json({
+        error: 'Cannot deploy: no diff exists for this document',
+      });
+    }
+
+    const diffItems = await db('diff_items').where({ diff_id: diff.id });
+    if (diffItems.length === 0) {
+      return res.status(409).json({
+        error: 'Cannot deploy: diff has no items to deploy',
+      });
+    }
+
+    // Clear any previous deployment logs for this document
     await db('deployment_log').where({ document_id: docId }).del();
 
-    const stages = [
-      { sys: 'Staging Environment',   scope: 'Dry-run Validation',  pass_fail: 'pass', order: 1 },
-      { sys: 'Production - Billing',  scope: 'Write Access Scoped', pass_fail: 'pass', order: 2 },
-      { sys: 'Production - HLR',      scope: 'Write Access Scoped', pass_fail: 'pass', order: 3 },
-      { sys: 'Reconciliation Engine', scope: 'Validation Check',    pass_fail: 'pass', order: 4 },
-    ];
+    const now = Date.now();
+    const logs = [];
 
-    await db('deployment_log').insert(stages.map(s => ({
-      id: 'dep_' + Date.now() + '_' + s.order,
-      document_id: docId, system: s.sys, scope: s.scope,
-      order_executed: s.order, pass_fail: s.pass_fail,
-    })));
+    // Helper: write a deployment_log entry
+    const writeLog = async (order, system, scope, passFail) => {
+      const entry = {
+        id: `dep_${now}_${order}`,
+        document_id: docId,
+        system,
+        scope,
+        order_executed: order,
+        pass_fail: passFail,
+      };
+      await db('deployment_log').insert(entry);
+      logs.push(entry);
+      return passFail === 'pass';
+    };
 
+    // ── Stage 1: Staging Validation (Dry-run) ─────────────────────────
+    const validChangeTypes = ['added', 'removed', 'modified'];
+    const stagingErrors = [];
+
+    for (const item of diffItems) {
+      if (!item.field_path || typeof item.field_path !== 'string' || !item.field_path.trim()) {
+        stagingErrors.push(`Item ${item.id}: missing field_path`);
+      }
+      if (!validChangeTypes.includes(item.change_type)) {
+        stagingErrors.push(`Item ${item.id}: invalid change_type "${item.change_type}"`);
+      }
+      if ((item.change_type === 'added' || item.change_type === 'modified') &&
+          (item.new_value === null || item.new_value === undefined)) {
+        stagingErrors.push(`Item ${item.id}: change_type="${item.change_type}" but new_value is null`);
+      }
+    }
+
+    const stagingPassed = stagingErrors.length === 0;
+    const stagingScope = stagingPassed
+      ? `Validated ${diffItems.length} diff items — all structurally valid`
+      : `Validation failed: ${stagingErrors.join('; ')}`;
+
+    const s1ok = await writeLog(1, 'Staging Environment', stagingScope, stagingPassed ? 'pass' : 'fail');
+    if (!s1ok) {
+      await db('document_workflow_state').where({ document_id: docId }).update({ stage_status: 'failed' });
+      return res.json({ success: false, stage_failed: 'staging', logs, errors: stagingErrors });
+    }
+
+    // ── Stage 2: Production Write — Billing Systems ───────────────────
+    // Split into two deployment_log rows for UI compatibility (rows 2 + 3).
+    // Both share the same underlying write transaction.
+    let productionPassed = true;
+    let productionError = null;
+    try {
+      await db.transaction(async trx => {
+        for (const item of diffItems) {
+          if (item.change_type === 'removed') {
+            // Delete the field from the digital twin
+            await trx('simulated_network_state')
+              .where({ document_id: docId, field_path: item.field_path })
+              .del();
+          } else {
+            // added or modified — upsert using onConflict().merge()
+            await trx('simulated_network_state')
+              .insert({
+                id: uuid(),
+                document_id: docId,
+                field_path: item.field_path,
+                current_value: item.new_value,
+                applied_by_diff_id: diff.id,
+                updated_at: new Date().toISOString(),
+              })
+              .onConflict(['document_id', 'field_path'])
+              .merge({
+                current_value: item.new_value,
+                applied_by_diff_id: diff.id,
+                updated_at: new Date().toISOString(),
+              });
+          }
+        }
+      });
+    } catch (err) {
+      productionPassed = false;
+      productionError = err.message;
+    }
+
+    const prodScope = productionPassed
+      ? `Applied ${diffItems.length} field changes to simulated network state`
+      : `Write failed: ${productionError}`;
+
+    // Row 2: Production - Billing
+    const billingItems = diffItems.filter(i => {
+      const cat = (i.category || i.domain || '').toLowerCase();
+      return cat.includes('commercial') || cat.includes('billing') || cat.includes('iot');
+    });
+    const billingScope = productionPassed
+      ? `${billingItems.length} billing-domain fields applied`
+      : prodScope;
+    const s2ok = await writeLog(2, 'Production - Billing', billingScope, productionPassed ? 'pass' : 'fail');
+
+    // Row 3: Production - HLR
+    const hlrItems = diffItems.filter(i => !billingItems.includes(i));
+    const hlrScope = productionPassed
+      ? `${hlrItems.length} HLR/network fields applied`
+      : prodScope;
+    const s3ok = await writeLog(3, 'Production - HLR', hlrScope, productionPassed ? 'pass' : 'fail');
+
+    if (!s2ok || !s3ok) {
+      await db('document_workflow_state').where({ document_id: docId }).update({ stage_status: 'failed' });
+      return res.json({ success: false, stage_failed: 'production', logs, error: productionError });
+    }
+
+    // ── Simulate Mismatch (test/demo facility) ────────────────────────
+    // If ?simulateMismatch=true, corrupt one field AFTER the production
+    // writes so the reconciliation stage genuinely detects it.
+    if (simulateMismatch && diffItems.length > 0) {
+      const targetField = diffItems[0].field_path;
+      await db('simulated_network_state')
+        .where({ document_id: docId, field_path: targetField })
+        .update({ current_value: (diffItems[0].new_value || '') + '_CORRUPTED' });
+    }
+
+    // ── Stage 3: Reconciliation (Read-back Verification) ──────────────
+    const mismatches = [];
+
+    for (const item of diffItems) {
+      const row = await db('simulated_network_state')
+        .where({ document_id: docId, field_path: item.field_path })
+        .first();
+
+      if (item.change_type === 'removed') {
+        // Expect the row to NOT exist
+        if (row) {
+          mismatches.push(`${item.field_path}: expected REMOVED but found value "${row.current_value}"`);
+        }
+      } else {
+        // added or modified — expect current_value === new_value
+        if (!row) {
+          mismatches.push(`${item.field_path}: expected "${item.new_value}" but row is MISSING`);
+        } else if (row.current_value !== item.new_value) {
+          mismatches.push(`${item.field_path}: expected "${item.new_value}" but found "${row.current_value}"`);
+        }
+      }
+    }
+
+    const reconPassed = mismatches.length === 0;
+    const reconScope = reconPassed
+      ? `Synced — all ${diffItems.length} fields match expected values`
+      : `Mismatch — ${mismatches.length} field(s): ${mismatches.join('; ')}`;
+
+    await writeLog(4, 'Reconciliation Engine', reconScope, reconPassed ? 'pass' : 'fail');
+
+    // ── Final status ──────────────────────────────────────────────────
+    const finalStatus = reconPassed ? 'deployed' : 'failed';
     await db('document_workflow_state')
       .where({ document_id: docId })
-      .update({ stage_status: 'deployed' });
+      .update({ stage_status: finalStatus, updated_at: new Date().toISOString() });
 
-    res.json({ success: true, logs: stages });
+    res.json({ success: reconPassed, stage_failed: reconPassed ? null : 'reconciliation', logs, mismatches });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 module.exports = router;
+
