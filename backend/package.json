@@ -5,7 +5,14 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:contract":  "node scripts/check_api_contract.js",
+    "test:golden":    "node tests/test_field_ownership_golden.js",
+    "test:holdout":   "node tests/test_field_ownership_holdout.js",
+    "test:admin":     "node tests/test_ownership_admin.js",
+    "test:routing":   "node tests/test_domain_routing.js",
+    "test:policy":    "node tests/test_workflow_policy.js",
+    "test:unit":      "node tests/test_workflow_engine_unit.js",
+    "test": "node scripts/check_api_contract.js && node tests/test_field_ownership_golden.js && node tests/test_field_ownership_holdout.js && node tests/test_workflow_engine_unit.js && echo --- REQUIRES RUNNING SERVER --- && node tests/test_ownership_admin.js && node tests/test_domain_routing.js && node tests/test_workflow_policy.js"
   },
   "keywords": [],
   "author": "",

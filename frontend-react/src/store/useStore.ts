@@ -12,8 +12,13 @@ import {
   AuditLogItem,
   WorkflowStepDefinition,
   WorkflowApiResponse,
-  OutlookEmailCategory
+  OutlookEmailCategory,
+  DocFieldsResponse,
+  AdminRule,
+  CatalogEntry,
+  Override,
 } from '../types';
+
 import { WORKFLOW_STEPS_DATA } from '../data/workflowStepsData';
 
 interface AutoRedirectState {
@@ -53,7 +58,8 @@ interface AppState {
   workflowLoading: boolean;
 
   // Selected entities for modals
-  selectedDocId: string | null;
+  selectedDocId: string | null;         // drives DocumentViewer (full-page tab)
+  selectedModalDocId: string | null;    // drives DocumentDetailModal (quick-peek overlay)
   selectedNodeId: string | null;
   quickUploadOpen: boolean;
 
@@ -69,6 +75,20 @@ interface AppState {
 
   // Routing Rules
   routingRules: any[];
+
+  // Document Viewer / Field Editor
+  docFields: DocFieldsResponse | null;
+  docFieldsLoading: boolean;
+
+  // Pre-selection: from StepTracker → target tabs
+  focusedApprovalDocId: string | null;   // highlights matching chain in ApprovalWorkflow
+  focusedApprovalDiffId: string | null;  // precise diff-level highlight in ApprovalWorkflow
+  focusedRollbackOperator: string | null; // highlights operator in RollbackCenter
+
+  // Admin Ownership Engine
+  adminRules: AdminRule[];
+  adminCatalog: CatalogEntry[];
+  adminOverrides: Override[];
 
   // Actions
   login: (username: string, password: string) => Promise<boolean>;
@@ -86,6 +106,7 @@ interface AppState {
   endOnboarding: () => void;
   
   setSelectedDocId: (id: string | null) => void;
+  setSelectedModalDocId: (id: string | null) => void;
   setSelectedNodeId: (id: string | null) => void;
   setQuickUploadOpen: (open: boolean) => void;
   fetchDocumentWorkflow: (docId: string) => Promise<void>;
@@ -111,6 +132,21 @@ interface AppState {
   fetchSmtpStatus: () => Promise<void>;
   fetchRoutingRules: () => Promise<void>;
   loadAllData: () => Promise<void>;
+
+  // Document fields
+  fetchDocFields: (docId: string) => Promise<void>;
+  submitFieldEdit: (docId: string, payload: { base_version_id: string; changes: Record<string,string>; comment: string }) => Promise<{ ok: boolean; status: number; body: any }>;
+  forceReleaseLock: (docId: string, reason: string) => Promise<{ ok: boolean; body: any }>;
+
+  // Admin Ownership Engine
+  fetchAdminRules: () => Promise<void>;
+  fetchAdminCatalog: () => Promise<void>;
+  fetchAdminOverrides: () => Promise<void>;
+
+  // Pre-selection actions
+  setFocusedApprovalDoc: (docId: string | null) => void;
+  setFocusedApprovalDiff: (diffId: string | null) => void;
+  setFocusedRollbackOperator: (operator: string | null) => void;
 
   // Domain Actions
   uploadDocument: (file: File, title?: string) => Promise<void>;
@@ -192,20 +228,20 @@ const ALL_TABS: NavigationTab[] = [
   'documents','master-repo','version-control','difference-checker',
   'approval-workflow','workflow-viz','notifications','email-center',
   'audit-logs','rollback-center','operators','global-map','partners',
-  'analytics','ai-assistant','settings','users',
+  'analytics','ai-assistant','settings','users','rejected-items',
 ];
 
 const ROLE_TAB_PERMISSIONS: Record<UserRole, NavigationTab[]> = {
-  'Admin':     ALL_TABS,
-  'Analyst':   ['dashboard','workflow-viz','documents','ai-roadmap','version-control',
+  'Admin':     [...ALL_TABS, 'document-viewer', 'admin-rules', 'admin-catalog', 'admin-overrides', 'rejected-items'],
+  'Analyst':   ['dashboard','workflow-viz','documents','document-viewer','ai-roadmap','version-control',
                 'difference-checker','governance-pipeline','integration-matrix',
                 'master-repo','operators','notifications','ai-assistant','analytics'],
-  'Approver':  ['dashboard','workflow-viz','approval-workflow','executive-dashboard',
-                'difference-checker','master-repo','notifications','ai-assistant'],
+  'Approver':  ['dashboard','workflow-viz','approval-workflow','executive-dashboard','document-viewer',
+                'difference-checker','master-repo','notifications','ai-assistant','rejected-items'],
   'CPO/Exec':  ['dashboard','executive-dashboard','workflow-viz','approval-workflow',
-                'analytics','notifications','ai-assistant','master-repo'],
+                'analytics','notifications','ai-assistant','master-repo','document-viewer'],
   'Auditor':   ['dashboard','workflow-viz','audit-logs','digital-twin','difference-checker',
-                'master-repo','notifications','analytics','ai-assistant'],
+                'master-repo','notifications','analytics','ai-assistant','document-viewer'],
 };
 
 export function canAccessTab(role: UserRole, tab: NavigationTab): boolean {
@@ -262,6 +298,7 @@ export const useStore = create<AppState>((set, get) => ({
   workflowLoading: false,
 
   selectedDocId: null,
+  selectedModalDocId: null,
   selectedNodeId: null,
   quickUploadOpen: false,
 
@@ -274,6 +311,20 @@ export const useStore = create<AppState>((set, get) => ({
   operators: [],
   auditLogs: [],
   routingRules: [],
+
+  // Document Viewer / Field Editor
+  docFields: null,
+  docFieldsLoading: false,
+
+  // Pre-selection
+  focusedApprovalDocId: null,
+  focusedApprovalDiffId: null,
+  focusedRollbackOperator: null,
+
+  // Admin Ownership Engine
+  adminRules: [],
+  adminCatalog: [],
+  adminOverrides: [],
 
   login: async (username, password) => {
     try {
@@ -385,11 +436,17 @@ export const useStore = create<AppState>((set, get) => ({
     const matchedStep = get().workflowSteps.find((s) => s.tabKey === tab);
     set({
       activeTab: tab,
-      currentWorkflowStepId: matchedStep ? matchedStep.id : get().currentWorkflowStepId,
+      // Non-pipeline tabs (operators, notifications, settings, users, etc.) have
+      // no workflow step entry — reset to 0 so the breadcrumb shows the tab title
+      // rather than being stuck on the last pipeline step.
+      currentWorkflowStepId: matchedStep ? matchedStep.id : 0,
     });
   },
 
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setFocusedApprovalDoc: (docId) => set({ focusedApprovalDocId: docId }),
+  setFocusedApprovalDiff: (diffId) => set({ focusedApprovalDiffId: diffId }),
+  setFocusedRollbackOperator: (operator) => set({ focusedRollbackOperator: operator }),
   
   toggleDarkMode: () => {
     const newMode = !get().darkMode;
@@ -418,6 +475,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+  setSelectedModalDocId: (id) => set({ selectedModalDocId: id }),
   setQuickUploadOpen: (open) => set({ quickUploadOpen: open }),
 
   fetchDocumentWorkflow: async (docId) => {
@@ -524,8 +582,16 @@ export const useStore = create<AppState>((set, get) => ({
         receivedAt: d.created_at ? d.created_at.slice(0, 16).replace('T', ' ') : 'Just now',
         modifiedDate: d.created_at ? d.created_at.slice(0, 16).replace('T', ' ') : 'Just now',
         author: 'Parser Engine',
-        status: (d.latest_diff_status === 'approved' ? 'Approved' : d.latest_diff_status === 'rejected' ? 'Rejected' : d.latest_diff_status === 'no_changes' ? 'Provisioned' : 'In Delta Check') as any,
-        approvalStatus: (d.latest_diff_status === 'approved' ? 'Approved' : d.latest_diff_status === 'rejected' ? 'Rejected' : 'Pending') as any,
+        // 'deployed' is the steady-state after successful deployment; 'approved' only
+        // exists briefly between the workflow completing and deployment running.
+        // 'no_changes' means first-ingest with nothing to diff — already provisioned.
+        // All three should map to 'Approved' so the Connected MNOs filter works.
+        status: (d.latest_diff_status === 'approved' || d.latest_diff_status === 'deployed' ? 'Approved'
+          : d.latest_diff_status === 'rejected' ? 'Rejected'
+          : d.latest_diff_status === 'no_changes' ? 'Provisioned'
+          : 'In Delta Check') as any,
+        approvalStatus: (['approved', 'deployed', 'no_changes'].includes(d.latest_diff_status) ? 'Approved'
+          : d.latest_diff_status === 'rejected' ? 'Rejected' : 'Pending') as any,
         deltaCount: 3,
         riskScore: 'Medium' as any,
         fileSize: '350 KB',
@@ -593,6 +659,9 @@ export const useStore = create<AppState>((set, get) => ({
         }
         return {
           id: String(r.id),
+          // diff_id (the parent diff this item belongs to) — used by ApprovalWorkflow
+          // to identify the exact chain when multiple diffs exist for the same document.
+          diffId: String(r.diff_id || r.diff_id_col || ''),
           docId: String(r.document_id),
           operator: r.operator_name,
           category: r.category as any,
@@ -641,6 +710,9 @@ export const useStore = create<AppState>((set, get) => ({
         return {
           id: String(wfId),
           docId: String(sample.document_id || ''),
+          // diff_id is exposed so ApprovalWorkflow can match by diff, not just docId,
+          // when multiple chains exist for the same document.
+          diffId: String(sample.diff_id || ''),
           docTitle: sample.document_title || '',
           operator: sample.operator_name || '',
           country: sample.operator_country || '',
@@ -650,9 +722,16 @@ export const useStore = create<AppState>((set, get) => ({
           steps: wfSteps.map((s) => ({
             role: s.role_title as UserRole,
             label: s.category,
-            status: (s.status === 'approved' ? 'Approved' : s.status === 'rejected' ? 'Rejected' : s.status === 'pending' ? 'Pending' : 'Skipped') as any,
+            // 'waiting' steps map to 'Waiting' (previously 'Skipped') so Admin can
+            // identify and act on them.  They already have a token — decideStep handles them.
+            status: (s.status === 'approved' ? 'Approved' : s.status === 'rejected' ? 'Rejected'
+                   : s.status === 'pending' ? 'Pending' : s.status === 'waiting' ? 'Waiting' : 'Skipped') as any,
             approverName: s.approver_name || undefined,
             approverEmail: s.approver_email || undefined,
+            // decided_by_* — the real authenticated actor who clicked the button.
+            // Distinct from approverName/approverEmail which are the assignment fields.
+            decided_by_name:  s.decided_by_name  || undefined,
+            decided_by_email: s.decided_by_email || undefined,
             mailContent: `Hello ${s.approver_name || 'Approver'},\n\nPlease review the pending changes for ${s.category} in document ${sample.document_title || 'IR.21'}.\n\nClick here to decide: /api/approvals/${s.token}/decide\n\nThanks,\nRoaming Copilot`,
             timestamp: s.decided_at || undefined,
             comments: s.comment || undefined,
@@ -735,7 +814,9 @@ export const useStore = create<AppState>((set, get) => ({
         id: String(a.id),
         timestamp: a.timestamp.replace('T', ' ').slice(0, 16),
         user: a.actor || 'system',
-        role: getRoleFromActor(a.actor || 'system') as any,
+        // Use the real role from users table (actor_role) — falls back to heuristic
+        // only for system/parser actors that have no users row (actor_role = null).
+        role: (a.actor_role || getRoleFromActor(a.actor || 'system')) as any,
         action: a.action.toUpperCase(),
         targetResource: a.entity_type.toUpperCase(),
         details: a.details || undefined,
@@ -745,6 +826,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ auditLogs: logs });
     }
   },
+
 
   fetchRollbackQueue: async () => {
     const res = await handleFetch('/api/workflow/rollback-queue');
@@ -837,14 +919,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   approveItem: async (chainId, comment) => {
     const chain = get().approvalChains.find((c) => c.id === chainId);
-    if (!chain) return;
-    const step: any = chain.steps.find((s) => s.status === 'Pending');
-    if (!step || !step.token) return;
+    if (!chain) { console.error('[approveItem] chain not found:', chainId); return; }
 
-    const res = await fetch(`${API_BASE}/api/approvals/${step.token}/decide`, {
+    // 1A fix: prefer a Pending step (already active), fall back to the first
+    // Waiting step.  Both have tokens set by createWorkflowForDiff — decideStep
+    // handles waiting steps identically to pending ones (same audit log, same
+    // self-approval guard, same sequencing).
+    const step: any =
+      chain.steps.find((s) => s.status === 'Pending') ||
+      chain.steps.find((s) => s.status === 'Waiting');
+
+    if (!step) { console.error('[approveItem] no actionable step found for chain:', chainId); return; }
+    if (!step.token) { console.error('[approveItem] step has no token — workflow may be misconfigured:', step); return; }
+
+    // 1B fix: use handleFetch so the Authorization header is always sent.
+    const res = await handleFetch(`/api/approvals/${step.token}/decide`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'approve', comment })
+      body: JSON.stringify({ action: 'approve', comment }),
     });
     if (res.ok) {
       await get().loadAllData();
@@ -853,22 +944,44 @@ export const useStore = create<AppState>((set, get) => ({
         'governance-pipeline',
         'Staging Queue'
       );
+    } else {
+      const body = await res.json().catch(() => ({}));
+      if (body.code === 'OUT_OF_SEQUENCE') {
+        console.error(
+          '[approveItem] Sequencing violation — the backend refused this decision.',
+          `\nBlocking step: order=${body.blocking_step?.step_order}`,
+          `role="${body.blocking_step?.role_title}"`,
+          `category="${body.blocking_step?.category}"`,
+          `status="${body.blocking_step?.status}"`,
+          `\nFull error: ${body.error}`
+        );
+      } else {
+        console.error('[approveItem] backend error:', res.status, body);
+      }
     }
   },
 
   rejectItem: async (chainId, reason) => {
     const chain = get().approvalChains.find((c) => c.id === chainId);
-    if (!chain) return;
-    const step: any = chain.steps.find((s) => s.status === 'Pending');
-    if (!step || !step.token) return;
+    if (!chain) { console.error('[rejectItem] chain not found:', chainId); return; }
 
-    const res = await fetch(`${API_BASE}/api/approvals/${step.token}/decide`, {
+    const step: any =
+      chain.steps.find((s) => s.status === 'Pending') ||
+      chain.steps.find((s) => s.status === 'Waiting');
+
+    if (!step) { console.error('[rejectItem] no actionable step found for chain:', chainId); return; }
+    if (!step.token) { console.error('[rejectItem] step has no token:', step); return; }
+
+    // 1B fix: use handleFetch so the Authorization header is always sent.
+    const res = await handleFetch(`/api/approvals/${step.token}/decide`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'reject', comment: reason })
+      body: JSON.stringify({ action: 'reject', comment: reason }),
     });
     if (res.ok) {
       await get().loadAllData();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      console.error('[rejectItem] backend error:', res.status, body);
     }
   },
 
@@ -893,8 +1006,17 @@ export const useStore = create<AppState>((set, get) => ({
         'audit-logs',
         'Audit & Reports'
       );
+    } else {
+      // Parse and throw so the UI can display the reason (e.g. 409 deploying guard)
+      let errMsg = 'Rollback failed';
+      try {
+        const errData = await res.json();
+        errMsg = errData.error || errMsg;
+      } catch {}
+      throw new Error(errMsg);
     }
   },
+
 
   markNotificationRead: async (notifId) => {
     const res = await handleFetch(`/api/notifications/${notifId}/read`, {
@@ -968,4 +1090,116 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
   },
+
+  // ── Document Viewer / Field Editor ─────────────────────────────────────────
+
+  fetchDocFields: async (docId) => {
+    set({ docFieldsLoading: true });
+    try {
+      const res = await handleFetch(`/api/documents/${docId}/fields`);
+      if (res.ok) {
+        const raw = await res.json();
+        // Build field_meta from the flat fields + classify info returned by the server
+        // The backend /api/documents/:id/fields returns:
+        //   { baseline_version_id, version_number, doc_type, operator_name, operator_id,
+        //     fields: {path: value}, field_meta: {path: {domain, owner_source, rule_version, flagged, duplicate}},
+        //     edit_locked, pending_diff_id, approval_steps? }
+        set({ docFields: raw as DocFieldsResponse, docFieldsLoading: false });
+      } else {
+        set({ docFields: null, docFieldsLoading: false });
+      }
+    } catch {
+      set({ docFields: null, docFieldsLoading: false });
+    }
+  },
+
+  submitFieldEdit: async (docId, payload) => {
+    const res = await handleFetch(`/api/documents/${docId}/fields`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    let body: any = {};
+    try { body = await res.json(); } catch {}
+    return { ok: res.ok, status: res.status, body };
+  },
+
+  forceReleaseLock: async (docId, reason) => {
+    const res = await handleFetch(`/api/documents/${docId}/edit-lock`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    let body: any = {};
+    try { body = await res.json(); } catch {}
+    return { ok: res.ok, body };
+  },
+
+  // ── Admin Ownership Engine ──────────────────────────────────────────────────
+
+  fetchAdminRules: async () => {
+    try {
+      const res = await handleFetch('/api/ownership/rules');
+      if (res.ok) {
+        const data = await res.json();
+        // DB columns: id, rule_type, pattern, domain, doc_type, priority, is_active, notes, created_by, created_at, updated_at
+        const rules: AdminRule[] = (Array.isArray(data) ? data : (data.rules || [])).map((r: any) => ({
+          id: String(r.id),
+          domain: r.domain || 'General',
+          // map DB rule_type → match_field UI concept
+          match_field: r.rule_type === 'section' ? 'section' : r.rule_type === 'explicit_general' ? 'path' : 'label',
+          // map DB pattern (single string) → keywords array the UI expects
+          keywords: r.pattern
+            ? r.pattern.split(',').map((k: string) => k.trim()).filter(Boolean)
+            : [],
+          priority: r.priority ?? 0,
+          active: r.is_active !== 0,
+          created_at: r.created_at,
+        }));
+        set({ adminRules: rules });
+      }
+    } catch {}
+  },
+
+  fetchAdminCatalog: async () => {
+    try {
+      const res = await handleFetch('/api/ownership/catalog');
+      if (res.ok) {
+        const data = await res.json();
+        // DB columns: id, doc_type, field_label, domain, pending_owner_confirmation, is_active, aliases, notes, created_by, created_at, updated_at
+        const entries: CatalogEntry[] = (Array.isArray(data) ? data : (data.entries || [])).map((e: any) => ({
+          id: String(e.id),
+          field_path: e.field_label,            // DB stores field_label; UI calls it field_path
+          domain: e.domain,
+          doc_type: e.doc_type || '*',
+          operator_id: e.operator_id || null,
+          active: e.is_active !== 0,            // DB column is is_active
+          flagged: e.pending_owner_confirmation === 1, // pending confirmation = flagged in UI
+          source_note: e.notes,
+        }));
+        set({ adminCatalog: entries });
+      }
+    } catch {}
+  },
+
+  fetchAdminOverrides: async () => {
+    try {
+      const res = await handleFetch('/api/ownership/overrides');
+      if (res.ok) {
+        const data = await res.json();
+        // DB columns: id, normalized_label, operator_id (__GLOBAL__ = all), section_scope, domain, notes, created_by, created_at, updated_at
+        const overrides: Override[] = (Array.isArray(data) ? data : (data.overrides || [])).map((o: any) => ({
+          id: String(o.id),
+          field_path: o.normalized_label,       // UI calls it field_path; DB stores normalized_label
+          domain: o.domain,
+          operator_id: o.operator_id === '__GLOBAL__' ? null : (o.operator_id || null),
+          operator_name: o.operator_name || (o.operator_id === '__GLOBAL__' ? 'Global' : o.operator_id),
+          created_at: o.created_at,
+        }));
+        set({ adminOverrides: overrides });
+      }
+    } catch {}
+  },
 }));
+
+

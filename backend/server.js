@@ -29,6 +29,7 @@ app.use('/api/reports',           require('./routes/reports'));
 // Blanket gates — all endpoints share the same role requirement:
 app.use('/api/settings',          requireRole('Admin'),   require('./routes/settings'));
 app.use('/api/admin',             requireRole('Admin'),   require('./routes/admin'));
+app.use('/api/ownership',         requireRole('Admin'),   require('./routes/ownershipAdmin'));
 app.use('/api/users',             requireRole('Admin'),   require('./routes/users'));
 app.use('/api/notifications',     requireAuth,            require('./routes/notifications'));
 app.use('/api/master-repository', requireAuth,            require('./routes/masterRepository'));

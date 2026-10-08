@@ -196,9 +196,12 @@ export const DocumentsView: React.FC = () => {
                                       </td>
                                       <td className="p-3 text-right">
                                         <button
-                                          onClick={() => setSelectedDocId(doc.id)}
+                                          onClick={() => {
+                                            setSelectedDocId(doc.id);
+                                            setActiveTab('document-viewer');
+                                          }}
                                           className="p-1.5 text-blue-600 dark:text-cyan-400 hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                                          title="Inspect Document Details"
+                                          title="View Document Fields"
                                         >
                                           <Eye className="w-3.5 h-3.5" />
                                         </button>

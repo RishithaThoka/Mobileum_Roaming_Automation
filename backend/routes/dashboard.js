@@ -30,7 +30,17 @@ router.get('/stats', requireAuth, async (req, res) => {
 });
 
 router.get('/audit-log', requireRole('Admin', 'Auditor'), async (req, res) => {
-  const rows = await db('audit_log').orderBy('timestamp', 'desc').limit(200);
+  // LEFT JOIN with users to get the actual role — audit_log.actor stores the
+  // username string but the table has no role column of its own.
+  const rows = await db('audit_log as a')
+    .select([
+      'a.id', 'a.entity_type', 'a.entity_id', 'a.action',
+      'a.actor', 'a.details', 'a.timestamp',
+      'u.role as actor_role',
+    ])
+    .leftJoin('users as u', 'u.username', 'a.actor')
+    .orderBy('a.timestamp', 'desc')
+    .limit(200);
   res.json(rows);
 });
 

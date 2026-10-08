@@ -100,7 +100,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-slate-900 dark:text-white group-hover:text-blue-600 transition-colors">
             {totalDocuments}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Docs Ingested</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Total IR.21 XML and RAEX OpData files ingested into the system (all statuses)">Docs Ingested</div>
         </div>
 
         {/* Card 2: Pending Reviews */}
@@ -116,7 +116,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-amber-600 dark:text-amber-400">
             {pendingReviews}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Pending Reviews</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Approval workflows currently in 'In Progress' or 'Pending' state — waiting for a stage approver to act">Pending Reviews</div>
         </div>
 
         {/* Card 3: Approvals */}
@@ -132,7 +132,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
             {totalApprovals}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Stage Approvals</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Approval workflows where all stages were approved (fully signed-off by all approvers)">Stage Approvals</div>
         </div>
 
         {/* Card 4: Rejected */}
@@ -148,7 +148,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-rose-600 dark:text-rose-400">
             {totalRejected}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Rejected</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Approval workflows where at least one stage was rejected (document requires re-submission or remediation)">Rejected</div>
         </div>
 
         {/* Card 5: Completed */}
@@ -164,7 +164,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-cyan-600 dark:text-cyan-400">
             {totalCompleted}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Completed Baseline</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Documents that reached 'Provisioned' or 'Approved' status — baseline configurations confirmed live">Completed Baseline</div>
         </div>
 
         {/* Card 6: Delta Anomaly */}
@@ -180,7 +180,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-slate-900 dark:text-white group-hover:text-purple-600 transition-colors">
             {totalDeltas}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Difference Alerts</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Open field-level differences detected between consecutive IR.21/RAEX document versions — unresolved items requiring review">Difference Alerts</div>
         </div>
 
         {/* Card 7: Rollback Queue */}
@@ -196,7 +196,7 @@ export const Dashboard: React.FC = () => {
           <div className="text-xl font-black text-orange-600 dark:text-orange-400">
             {activeRollbacks}
           </div>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1">Rollback Queue</div>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-bold line-clamp-1" title="Eligible version snapshots available in the Rollback Center — each represents a previously deployed and approved baseline that can be restored">Rollback Queue</div>
         </div>
 
         {/* Card 8: System Health */}
@@ -257,8 +257,16 @@ export const Dashboard: React.FC = () => {
                 />
                 <Area type="monotone" dataKey="ingested" stroke="#0066FF" strokeWidth={3} fillOpacity={1} fill="url(#colorIngested)" name="Ingested Files" />
                 <Area type="monotone" dataKey="autoApproved" stroke="#10B981" strokeWidth={3} fillOpacity={1} fill="url(#colorAuto)" name="Auto-Validated" />
+                <Area type="monotone" dataKey="deltaCount" stroke="#F59E0B" strokeWidth={2} fillOpacity={0} name="Delta Anomalies" strokeDasharray="4 2" />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Chart Legend */}
+          <div className="flex items-center justify-center space-x-5 pt-1">
+            <div className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-blue-500 shrink-0" /><span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">Ingested Files</span></div>
+            <div className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 shrink-0" /><span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">Auto-Validated</span></div>
+            <div className="flex items-center space-x-1.5"><span className="w-4 border-t-2 border-amber-500 border-dashed inline-block" /><span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">Delta Anomalies</span></div>
           </div>
         </div>
 

@@ -2,12 +2,12 @@ const express = require('express');
 const notificationService = require('../services/notificationService');
 const router = express.Router();
 
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   const unreadOnly = req.query.unreadOnly === 'true';
   const limit = Number(req.query.limit || 50);
   const operatorId = req.query.operatorId || null;
 
-  const result = notificationService.getNotifications({ limit, unreadOnly, operatorId });
+  const result = await notificationService.getNotifications({ limit, unreadOnly, operatorId });
   res.json(result);
 });
 

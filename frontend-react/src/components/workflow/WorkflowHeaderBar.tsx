@@ -22,8 +22,12 @@ export const WorkflowHeaderBar: React.FC<WorkflowHeaderBarProps> = ({ title, sub
 
   const computedSteps = mapWorkflowSteps(selectedDocWorkflow, workflowLoading);
 
+  // currentWorkflowStepId === 0 means we are on a non-pipeline tab (operators,
+  // notifications, settings, users, etc.).  In that case show the tab title in
+  // the breadcrumb and suppress the "Step X of 11" badge.
+  const isPipelineTab = currentWorkflowStepId > 0;
   const currentStep = workflowSteps.find((s) => s.id === currentWorkflowStepId) || workflowSteps[0];
-  const currentComputed = computedSteps.find((s) => s.id === currentWorkflowStepId);
+  const currentComputed = isPipelineTab ? computedSteps.find((s) => s.id === currentWorkflowStepId) : undefined;
   const currentStatus: StepStatus = currentComputed?.status ?? 'upcoming';
 
   // Context for the operator/version chips: prefer the selected doc's data.
@@ -54,11 +58,18 @@ export const WorkflowHeaderBar: React.FC<WorkflowHeaderBarProps> = ({ title, sub
       <div className="flex items-center space-x-2 text-xs font-mono text-slate-500">
         <span>Workflow Engine</span>
         <ChevronRight className="w-3.5 h-3.5" />
-        <span className="text-blue-600 dark:text-cyan-400 font-bold">{currentStep.title}</span>
-        <ChevronRight className="w-3.5 h-3.5" />
-        <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/20 dark:text-cyan-400 font-bold text-[10px]">
-          Step {currentWorkflowStepId} of 11
+        <span className="text-blue-600 dark:text-cyan-400 font-bold">
+          {isPipelineTab ? currentStep.title : title}
         </span>
+        {/* Step badge — only shown for the 11 numbered pipeline tabs */}
+        {isPipelineTab && (
+          <>
+            <ChevronRight className="w-3.5 h-3.5" />
+            <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-500/20 dark:text-cyan-400 font-bold text-[10px]">
+              Step {currentWorkflowStepId} of 11
+            </span>
+          </>
+        )}
       </div>
 
       {/* Main Title Row & Context Chips */}
@@ -79,7 +90,9 @@ export const WorkflowHeaderBar: React.FC<WorkflowHeaderBarProps> = ({ title, sub
               <span>{workflowLoading ? 'Loading…' : badgeText}</span>
             </span>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{subtitle || currentStep.subtitle}</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            {subtitle || (isPipelineTab ? currentStep.subtitle : '')}
+          </p>
         </div>
 
         {/* Enterprise Context Bar */}

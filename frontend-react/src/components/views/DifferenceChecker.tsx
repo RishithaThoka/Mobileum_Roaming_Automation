@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { GitCompare, CheckCircle2, AlertTriangle, ShieldCheck, ArrowRight, Filter, Search, Code, Check, Globe, Folder, FileText, ChevronDown, ChevronRight } from 'lucide-react';
+import { GitCompare, AlertTriangle, ShieldCheck, ArrowRight, Filter, Search, Code, Check, Globe, Folder, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { HelpTooltip } from '../common/HelpTooltip';
 import { ParameterDelta } from '../../types';
@@ -28,7 +28,7 @@ const getRegionForCountry = (country: string): string => {
 };
 
 export const DifferenceChecker: React.FC = () => {
-  const { deltas, resolveDelta, documents, routingRules } = useStore();
+  const { deltas, documents, routingRules, setActiveTab, setFocusedApprovalDoc, setFocusedApprovalDiff } = useStore();
   const [activeDocId, setActiveDocId] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedRole, setSelectedRole] = useState<string>('All');
@@ -44,7 +44,10 @@ export const DifferenceChecker: React.FC = () => {
 
   const [expandedOperators, setExpandedOperators] = useState<Record<string, boolean>>({});
 
-  const categories = ['All', 'Network/Technical', 'Security', 'Commercial', 'Financial/Billing', 'Legal/Compliance', 'Operations'];
+  // Derive category options from actual delta values (DB domain strings), not hardcoded UI labels
+  const activeDocCategories = ['All', ...Array.from(new Set(
+    deltas.filter(d => d.docId === activeDocId).map(d => d.category).filter(Boolean)
+  )).sort()];
   const roles = ['All', ...Array.from(new Set(routingRules.map(r => r.role_title)))].filter(Boolean);
 
   // Group documents by Region -> Operator
@@ -77,7 +80,9 @@ export const DifferenceChecker: React.FC = () => {
 
   const filteredDeltas = activeDocDeltas.filter((d) => {
     const matchesCategory = selectedCategory === 'All' || d.category === selectedCategory;
-    const matchesSearch = d.parameterName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = d.parameterName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      d.oldValue.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      d.newValue.toLowerCase().includes(searchQuery.toLowerCase());
     const rule = routingRules.find(r => r.category === d.category);
     const deltaRole = rule ? rule.role_title : 'Admin';
     const matchesRole = selectedRole === 'All' || deltaRole === selectedRole;
@@ -120,7 +125,7 @@ export const DifferenceChecker: React.FC = () => {
             <span>Export PDF</span>
           </button>
           <div className="px-3 py-1.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 rounded-xl font-mono font-bold">
-            {deltas.filter((d) => d.status === 'Unresolved').length} Unresolved Deltas
+            {activeDocDeltas.filter((d) => d.status !== 'Approved').length} Unresolved in View
           </div>
         </div>
       </div>
@@ -243,18 +248,18 @@ export const DifferenceChecker: React.FC = () => {
               {/* Filter & Search Bar */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm print:hidden">
                 <div className="flex items-center space-x-3 w-full sm:w-auto">
-                  <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <Filter className="w-3.5 h-3.5 text-slate-400" />
-                    <select
-                      value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
-                      className="bg-transparent text-[11px] font-bold text-slate-700 dark:text-slate-300 focus:outline-none"
-                    >
-                      {categories.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
+                    <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                      <Filter className="w-3.5 h-3.5 text-slate-400" />
+                      <select
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value)}
+                        className="bg-transparent text-[11px] font-bold text-slate-700 dark:text-slate-300 focus:outline-none"
+                      >
+                        {activeDocCategories.map((cat) => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                    </div>
                   
                   <div className="flex items-center space-x-1.5 bg-slate-50 dark:bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800">
                     <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
@@ -325,11 +330,17 @@ export const DifferenceChecker: React.FC = () => {
                               </span>
                             ) : (
                               <button
-                                onClick={() => resolveDelta(delta.id)}
-                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-blue-600/20 transition-colors flex items-center space-x-1.5 animate-pulse"
+                                onClick={() => {
+                                  // Issue 2 fix: pass both docId and diffId so ApprovalWorkflow
+                                  // can match the exact chain even when a document has multiple diffs.
+                                  setFocusedApprovalDoc(delta.docId);
+                                  setFocusedApprovalDiff((delta as any).diffId || null);
+                                  setActiveTab('approval-workflow');
+                                }}
+                                className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-xl shadow-md shadow-purple-600/20 transition-colors flex items-center space-x-1.5"
                               >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Accept & Approve Delta</span>
+                                <ArrowRight className="w-3.5 h-3.5" />
+                                <span>Review in Approval Workflow</span>
                               </button>
                             )}
                           </div>

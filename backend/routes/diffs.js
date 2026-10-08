@@ -51,9 +51,36 @@ router.get('/:id', requireAuth, async (req, res) => {
 
 router.get('/', requireAuth, async (req, res) => {
   try {
+    // For each document, we only want diff_items from the LATEST non-superseded,
+    // non-rejected diff. This prevents the Difference Checker from aggregating
+    // items from stale/cancelled diffs into the unresolved count.
+    //
+    // Strategy: subquery-select the most recent diff per document that is in
+    // an active state (pending_workflow | in_approval | approved | deployed |
+    // no_changes), then join diff_items only against those.
+    //
+    // SQLite-safe approach: filter in application layer after fetching active diffs.
+    const activeDiffs = await db('diffs as df')
+      .select([
+        'df.id as diff_id', 'df.document_id', 'df.status as diff_status',
+        'df.from_version_id', 'df.to_version_id', 'df.created_at',
+        'df.total_changes',
+      ])
+      .whereNotIn('df.status', ['superseded', 'rejected'])
+      .orderBy('df.created_at', 'desc');
+
+    // Keep only the most-recent active diff per document
+    const latestByDoc = {};
+    for (const d of activeDiffs) {
+      if (!latestByDoc[d.document_id]) latestByDoc[d.document_id] = d.diff_id;
+    }
+    const activeDiffIds = Object.values(latestByDoc);
+    if (activeDiffIds.length === 0) return res.json([]);
+
     const rows = await db('diff_items as di')
       .select([
         'di.*',
+        'df.id as diff_id_col',
         'df.status as diff_status', 'df.document_id',
         'df.from_version_id', 'df.to_version_id',
         'op.name as operator_name', 'op.country as operator_country',
@@ -68,6 +95,7 @@ router.get('/', requireAuth, async (req, res) => {
       .join('operators as op', 'doc.operator_id', 'op.id')
       .leftJoin('document_versions as v_from', 'df.from_version_id', 'v_from.id')
       .leftJoin('document_versions as v_to',   'df.to_version_id',   'v_to.id')
+      .whereIn('di.diff_id', activeDiffIds)
       .orderBy('df.created_at', 'desc');
     res.json(rows);
   } catch (err) {

@@ -89,4 +89,25 @@ router.post('/rollout/:diffId/execute', (req, res) => {
   res.json({ success: true });
 });
 
+/**
+ * POST /api/admin/recover-stale-deploy
+ *
+ * Admin-only action: find any 'deploying' workflow rows older than
+ * STALE_DEPLOY_TIMEOUT_MINUTES and mark them 'failed' with an audit entry.
+ * Returns the list of recovered documents.
+ */
+router.post('/recover-stale-deploy', async (req, res) => {
+  try {
+    const recovered = await db.recoverStaleDeployments({ onStartup: false });
+    res.json({
+      recovered_count: recovered.length,
+      recovered,
+      timeout_minutes: parseInt(process.env.STALE_DEPLOY_TIMEOUT_MINUTES || '30', 10),
+    });
+  } catch (err) {
+    console.error('[admin/recover-stale-deploy]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -1,0 +1,30 @@
+GSMA IR21 OPERATOR DOCUMENT
+Operator Name: Sunrise Mobile AG
+Country: Switzerland
+TADIG Code: CHESR
+Document Type: IR21
+
+NETWORK TECHNICAL CONFIG
+Signalling Point Code: 4-777-2
+HLR Global Title: 41770000000
+APN Roaming: mobile.sunrise.ch
+GRX IPX Provider: SR-GRX
+Steering Of Roaming Supported: Yes
+
+SECURITY AND CHARGING
+Fraud Contact Email: ciso@sunrise.ch
+IPsec Gateway: 192.168.100.1
+Encryption Algorithm: AES-256-GCM
+Authentication Protocol: EAP-AKA
+
+FINANCIAL BILLING
+Wholesale Voice Rate: 0.018
+Wholesale Data Rate Per MB: 0.001
+Currency: CHF
+Tax Policy Standard VAT: 7.7%
+
+VOICE SMS CONFIG
+IMSI Range: 228050000000000-228059999999999
+SMS Center Number: +41797777777
+Voice Profile: AMR-NB
+Short Number Service: 147

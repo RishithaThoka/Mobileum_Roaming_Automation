@@ -173,6 +173,19 @@ export const Topbar: React.FC = () => {
                   ))
                 )}
               </div>
+
+              {/* Footer: link to full Notifications page */}
+              <div className="border-t border-slate-200 dark:border-slate-800 px-4 py-2 bg-slate-50 dark:bg-slate-950/80">
+                <button
+                  onClick={() => {
+                    setActiveTab('notifications');
+                    setNotifDropdownOpen(false);
+                  }}
+                  className="w-full text-center text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  View all notifications →
+                </button>
+              </div>
             </div>
           )}
         </div>

@@ -8,6 +8,7 @@ const workflowEngine    = require('./workflowEngine');
 const { ensureWorkflowState, writeSubstage } = workflowEngine;
 const operatorDetector  = require('./ai/operatorDetector');
 const notificationService = require('./notificationService');
+const { detectDuplicateLabels } = require('./duplicateLabelDetector');
 
 function formatFromExt(filename) {
   const ext = path.extname(filename).toLowerCase().replace('.', '');
@@ -27,6 +28,18 @@ async function ingestDocumentVersion({ operatorId, docType, title, filePath, ori
   const format = formatFromExt(originalFilename);
 
   const extractedFields = await diffEngine.extractFields(filePath, format, docType);
+
+  // B8: Detect duplicate labels (parser silently overwrites on duplicate Section.Label).
+  // Flag those paths so they can never be manually edited.
+  const duplicateSet = await detectDuplicateLabels(filePath, format);
+  const duplicatePaths = [...duplicateSet];
+  if (duplicatePaths.length > 0) {
+    console.warn(
+      `[ingestion] ${originalFilename}: ${duplicatePaths.length} duplicate label(s) detected.` +
+      ` These fields are non-editable: ${duplicatePaths.slice(0, 5).join(', ')}` +
+      (duplicatePaths.length > 5 ? ` ... +${duplicatePaths.length - 5} more` : '')
+    );
+  }
 
   // Resolve operator: use supplied ID, fall back to content-based detection
   let opRecord = null;
@@ -88,6 +101,7 @@ async function ingestDocumentVersion({ operatorId, docType, title, filePath, ori
       approval_status: initStatus,
       is_current_baseline: isBaseline,
       requires_review: reqReview,
+      duplicate_label_paths: duplicatePaths.length > 0 ? JSON.stringify(duplicatePaths) : null,
     });
 
     await trx('documents').where({ id: document.id }).update({ current_version_id: versionId });

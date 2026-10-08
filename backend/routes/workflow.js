@@ -9,19 +9,37 @@ const { requireRole, requireAuth } = require('./auth');
 
 router.get('/rollback-queue', requireAuth, async (req, res) => {
   try {
+    // Only include versions that are actually eligible rollback targets —
+    // matches the exact rules enforced by POST /rollback/:versionId.
+    //
+    // Eligible = one of:
+    //   a) The version has a linked diff (diffs.to_version_id = v.id) with
+    //      status = 'deployed'  →  fully approved and pushed to the network.
+    //   b) The version has NO linked diff AND approval_status = 'approved'
+    //      →  initial ingest version, never went through a diff cycle.
     const rows = await db('document_versions as v')
       .select([
         'v.id as version_id', 'v.version_number', 'v.original_filename',
-        'v.uploaded_at', 'v.is_current_baseline',
+        'v.uploaded_at', 'v.is_current_baseline', 'v.approval_status',
         'd.id as doc_id', 'd.title as doc_title', 'd.doc_type',
         'op.name as operator_name', 'op.country as operator_country',
         'op.network_code as mcc_mnc',
+        db.raw(`(SELECT status FROM diffs WHERE to_version_id = v.id LIMIT 1) as linked_diff_status`),
       ])
       .join('documents as d', 'v.document_id', 'd.id')
       .join('operators as op', 'd.operator_id', 'op.id')
       .orderBy('v.uploaded_at', 'desc');
 
-    const mapped = rows.map(r => ({
+    // Filter to eligible versions only
+    const eligible = rows.filter(r => {
+      if (r.linked_diff_status) {
+        return r.linked_diff_status === 'deployed';
+      }
+      // No linked diff — only allow if initial-ingest approved version
+      return r.approval_status === 'approved';
+    });
+
+    const mapped = eligible.map(r => ({
       id: r.version_id,
       versionNumber: `v${r.version_number}`,
       previousVersion: r.version_number > 1 ? `v${r.version_number - 1}` : 'N/A',
@@ -32,7 +50,8 @@ router.get('/rollback-queue', requireAuth, async (req, res) => {
       comment: `Ingested configuration file ${r.original_filename}`,
       activeConfiguration: `Baseline configuration for ${r.operator_name} (${r.doc_type})`,
       rollbackRisk: r.version_number > 1 ? 'Moderate' : 'Safe',
-      status: r.is_current_baseline === 1 ? 'Active Baseline' : 'Archived',
+      status: r.is_current_baseline === 1 ? 'Active Baseline' : 'Archived Baseline',
+      eligible: true,
     }));
 
     res.json(mapped);
@@ -41,6 +60,7 @@ router.get('/rollback-queue', requireAuth, async (req, res) => {
   }
 });
 
+
 router.post('/rollback/:versionId', requireRole('Admin'), async (req, res) => {
   try {
     const version = await db('document_versions').where({ id: req.params.versionId }).first();
@@ -48,7 +68,56 @@ router.post('/rollback/:versionId', requireRole('Admin'), async (req, res) => {
 
     const docId = version.document_id;
 
+    // ── Deploying-state guard ─────────────────────────────────────────────────
+    // If stage_status = 'deploying', refuse to avoid half-applied simulated_network_state.
+    const wfState = await db('document_workflow_state').where({ document_id: docId }).first();
+    if (wfState && wfState.stage_status === 'deploying') {
+      return res.status(409).json({
+        error: 'Cannot rollback while deployment is in progress. Wait for deployment to complete (deployed or failed) then retry.',
+        stage_status: 'deploying',
+      });
+    }
+
+    // ── Deployed-baseline guard (A2) ──────────────────────────────────────────
+    // Rollback is allowed only to a version that was previously an approved,
+    // deployed baseline.
+    //
+    // How we identify eligible versions:
+    //   a) Version has a linked diff (diffs.to_version_id = version.id) with
+    //      status = 'deployed'  →  the diff was fully deployed, version is safe.
+    //   b) Version has NO linked diff AND approval_status = 'approved'
+    //      →  initial ingest version (uploaded directly, never went through a diff);
+    //      these are always valid rollback targets.
+    //
+    // All other cases (diff status = pending_workflow, in_approval, rejected,
+    // superseded, or no diff but approval_status ≠ approved) are refused.
+    const linkedDiff = await db('diffs')
+      .where({ to_version_id: version.id })
+      .first();
+
+    if (linkedDiff) {
+      if (linkedDiff.status !== 'deployed') {
+        return res.status(409).json({
+          error: `Cannot rollback to this version: its diff has status "${linkedDiff.status}". Only versions from deployed diffs can be used as rollback targets.`,
+          diff_id: linkedDiff.id,
+          diff_status: linkedDiff.status,
+        });
+      }
+    } else {
+      // No diff — only allow if this was an initial approved ingest version
+      if (version.approval_status !== 'approved') {
+        return res.status(409).json({
+          error: 'Cannot rollback to this version: it has no associated deployed diff and was never approved.',
+          approval_status: version.approval_status,
+        });
+      }
+    }
+
+    // NOTE: all queries below are scoped to docId — this handler never touches
+    // diffs, versions, locks, or workflows of any other document.
+
     await db.transaction(async trx => {
+
       await trx('document_versions').where({ id: version.id }).update({ is_current_baseline: 1 });
       await trx('document_versions')
         .where({ document_id: docId })
@@ -122,6 +191,33 @@ router.post('/rollback/:versionId', requireRole('Admin'), async (req, res) => {
           updated_at: new Date().toISOString(),
         });
       }
+
+      // Release edit lock on rollback — document is back to a prior baseline
+      // and can be re-edited.
+      await trx('document_edit_locks').where({ document_id: docId }).del();
+
+      // Supersede any pending/in_approval diffs so the PATCH edit-block check
+      // (which reads diffs.status) doesn't continue blocking new edits.
+      // This covers both manual_edit diffs and ingestion diffs that were
+      // in-flight when the rollback was triggered.
+      const pendingDiffs = await trx('diffs')
+        .where({ document_id: docId })
+        .whereIn('status', ['pending_workflow', 'in_approval'])
+        .select('id');
+      for (const pd of pendingDiffs) {
+        await trx('diffs').where({ id: pd.id }).update({ status: 'superseded' });
+        const wf = await trx('approval_workflows').where({ diff_id: pd.id }).first();
+        if (wf) {
+          await trx('approval_steps')
+            .where({ workflow_id: wf.id })
+            .whereIn('status', ['pending', 'waiting'])
+            .update({ status: 'cancelled', decided_at: new Date().toISOString() });
+          await trx('approval_workflows').where({ id: wf.id }).update({
+            status: 'cancelled', completed_at: new Date().toISOString(),
+          });
+        }
+      }
+
     });
 
     const workflowEngine = require('../services/workflowEngine');
@@ -575,6 +671,11 @@ router.post('/:docId/deploy', requireRole('Admin'), async (req, res) => {
     await db('document_workflow_state')
       .where({ document_id: docId })
       .update({ stage_status: finalStatus, updated_at: new Date().toISOString() });
+
+    // Release edit lock — deployment finished (succeeded OR failed).
+    // On failure the user must fix the document and re-submit;
+    // keeping the lock would prevent that.
+    await db('document_edit_locks').where({ document_id: docId }).del();
 
     res.json({ success: reconPassed, stage_failed: reconPassed ? null : 'reconciliation', logs, mismatches });
   } catch (error) {

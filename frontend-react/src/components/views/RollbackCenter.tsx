@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RotateCcw, AlertTriangle, ShieldCheck, Globe, Folder, ChevronDown, ChevronRight } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { HelpTooltip } from '../common/HelpTooltip';
@@ -27,8 +27,23 @@ const getRegionForCountry = (country: string): string => {
 };
 
 export const RollbackCenter: React.FC = () => {
-  const { rollbackQueue, executeRollback, documents } = useStore();
+  const { rollbackQueue, executeRollback, documents, focusedRollbackOperator, setFocusedRollbackOperator } = useStore();
   const [activeOperator, setActiveOperator] = useState<string | null>(null);
+  const operatorBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [executingId, setExecutingId] = useState<string | null>(null);
+  const [rollbackError, setRollbackError] = useState<string | null>(null);
+
+  const handleRollback = async (snapId: string) => {
+    setExecutingId(snapId);
+    setRollbackError(null);
+    try {
+      await executeRollback(snapId);
+    } catch (err: any) {
+      setRollbackError(err?.message || 'Rollback failed — check server logs.');
+    } finally {
+      setExecutingId(null);
+    }
+  };
 
   const [expandedRegions, setExpandedRegions] = useState<Record<string, boolean>>({
     'Europe': true,
@@ -64,6 +79,23 @@ export const RollbackCenter: React.FC = () => {
       setActiveOperator(rollbackQueue[0].operator);
     }
   }, [rollbackQueue, activeOperator]);
+
+  // Auto-select focused operator from DocumentViewer link
+  useEffect(() => {
+    if (!focusedRollbackOperator) return;
+    setActiveOperator(focusedRollbackOperator);
+    // Expand the region containing that operator
+    const snap = snapshotsWithRegion.find(s => s.operator === focusedRollbackOperator);
+    if (snap) setExpandedRegions(prev => ({ ...prev, [snap.region]: true }));
+    // Scroll button into view
+    const t1 = setTimeout(() => {
+      if (operatorBtnRefs.current[focusedRollbackOperator]) {
+        operatorBtnRefs.current[focusedRollbackOperator]!.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+    const t2 = setTimeout(() => setFocusedRollbackOperator(null), 3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [focusedRollbackOperator]);
 
   const activeSnapshots = activeOperator
     ? rollbackQueue.filter(snap => snap.operator === activeOperator)
@@ -120,19 +152,24 @@ export const RollbackCenter: React.FC = () => {
                       <div className="pl-4 border-l border-slate-100 dark:border-slate-800 space-y-1 mt-1">
                         {operatorNames.map((operator) => {
                           const isActive = activeOperator === operator;
+                          const isFocused = focusedRollbackOperator === operator;
 
                           return (
                             <button
                               key={operator}
+                              ref={el => { operatorBtnRefs.current[operator] = el; }}
                               onClick={() => setActiveOperator(operator)}
                               className={`w-full flex items-center space-x-2 p-2 rounded-lg text-left text-xs font-bold transition-all ${
-                                isActive
+                                isFocused
+                                  ? 'bg-orange-50 dark:bg-orange-600/20 text-orange-600 dark:text-orange-300 border border-orange-300 dark:border-orange-500/40 ring-1 ring-orange-400/30'
+                                  : isActive
                                   ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-cyan-300 border border-blue-100 dark:border-blue-500/30'
                                   : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                               }`}
                             >
-                              <Folder className={`w-3.5 h-3.5 ${isActive ? 'text-blue-500' : 'text-slate-400'}`} />
+                              <Folder className={`w-3.5 h-3.5 ${isFocused ? 'text-orange-500' : isActive ? 'text-blue-500' : 'text-slate-400'}`} />
                               <span className="truncate">{operator}</span>
+                              {isFocused && <span className="ml-auto text-[9px] font-bold text-orange-600 dark:text-orange-400">←</span>}
                             </button>
                           );
                         })}
@@ -184,13 +221,19 @@ export const RollbackCenter: React.FC = () => {
                       <div>Rollback Risk: <span className="text-emerald-600 dark:text-emerald-450 font-bold">{snap.rollbackRisk}</span></div>
                     </div>
 
+                    {rollbackError && executingId === null && (
+                      <div className="mt-1 p-2.5 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 rounded-xl text-[10px] font-mono text-rose-600 dark:text-rose-400">
+                        ⚠ {rollbackError}
+                      </div>
+                    )}
                     <div className="pt-2 flex justify-end">
                       <button
-                        onClick={() => executeRollback(snap.id)}
-                        className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-[11px] font-bold rounded-xl shadow-md shadow-orange-600/20 transition-all flex items-center space-x-1.5"
+                        onClick={() => handleRollback(snap.id)}
+                        disabled={executingId === snap.id}
+                        className="px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:opacity-60 text-white text-[11px] font-bold rounded-xl shadow-md shadow-orange-600/20 transition-all flex items-center space-x-1.5"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" />
-                        <span>Execute Emergency Rollback</span>
+                        <RotateCcw className={`w-3.5 h-3.5 ${executingId === snap.id ? 'animate-spin' : ''}`} />
+                        <span>{executingId === snap.id ? 'Executing…' : 'Execute Emergency Rollback'}</span>
                       </button>
                     </div>
                   </div>

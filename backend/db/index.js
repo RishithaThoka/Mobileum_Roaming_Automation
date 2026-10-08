@@ -167,7 +167,73 @@ async function deduplicateDocuments() {
   });
 }
 
+// ─── A3: Stale-deploy recovery ────────────────────────────────────────────────
+
+/**
+ * Mark 'deploying' workflow state rows as 'failed' when they are stale.
+ *
+ * @param {object} options
+ * @param {boolean} options.onStartup   If true, recover ALL 'deploying' rows immediately
+ *   (nothing can still be deploying after a server restart).
+ *   If false, only recover rows older than STALE_DEPLOY_TIMEOUT_MINUTES.
+ * @returns {Promise<Array>} List of recovered docs.
+ */
+async function recoverStaleDeployments({ onStartup = false, dbInstance = null } = {}) {
+  const knex = dbInstance || db;
+  const timeoutMinutes = parseInt(process.env.STALE_DEPLOY_TIMEOUT_MINUTES || '30', 10);
+
+  const staleRows = await knex('document_workflow_state')
+    .where({ stage_status: 'deploying' })
+    .modify(q => {
+      if (!onStartup) {
+        const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000).toISOString();
+        q.where('updated_at', '<', cutoff);
+      }
+    })
+    .select('id', 'document_id', 'updated_at');
+
+  if (staleRows.length === 0) return [];
+
+  const recovered = [];
+  const now = new Date().toISOString();
+  const reason = onStartup
+    ? 'Server restarted while deployment was in progress — marked failed on startup.'
+    : `Deployment exceeded stale timeout (${timeoutMinutes} min) — marked failed by admin recovery action.`;
+
+  await knex.transaction(async trx => {
+    for (const row of staleRows) {
+      await trx('document_workflow_state')
+        .where({ id: row.id })
+        .update({ stage_status: 'failed', updated_at: now });
+
+      try {
+        await trx('audit_log').insert({
+          id: `audit_stale_${Date.now()}_${row.document_id.slice(0, 8)}`,
+          document_id: row.document_id,
+          action: 'stale_deploy_recovered',
+          actor: 'system',
+          field_path: null,
+          old_value: 'deploying',
+          new_value: 'failed',
+          domain: null,
+          comment: reason,
+          created_at: now,
+        });
+      } catch (_) {
+        // audit_log columns may differ — non-fatal
+        console.warn(`[stale-deploy] Audit write skipped for doc ${row.document_id} (non-fatal).`);
+      }
+
+      console.log(`[stale-deploy] ${row.document_id}: deploying → failed (${onStartup ? 'startup' : 'admin, timeout=' + timeoutMinutes + 'min'})`);
+      recovered.push({ document_id: row.document_id, previous_updated_at: row.updated_at, reason });
+    }
+  });
+
+  return recovered;
+}
+
 // ─── Bootstrap ───────────────────────────────────────────────────────────────
+
 
 /**
  * Run Knex migrations, then startup seed and deduplication.
@@ -178,8 +244,17 @@ async function bootstrap() {
   await runStartupSeed();
   try { await deduplicateOperators(); }  catch (e) { console.error('[db] Operator dedup error:', e.message); }
   try { await deduplicateDocuments(); }  catch (e) { console.error('[db] Document dedup error:', e.message); }
+  // A3: On every startup, immediately recover any 'deploying' rows left by a crash.
+  // Nothing can genuinely be deploying if the server just started.
+  try {
+    const recovered = await recoverStaleDeployments({ onStartup: true });
+    if (recovered.length > 0) {
+      console.log(`[stale-deploy] Startup: recovered ${recovered.length} stale deployment(s).`);
+    }
+  } catch (e) { console.error('[stale-deploy] Startup recovery error:', e.message); }
 }
 
 db.bootstrap = bootstrap;
+db.recoverStaleDeployments = recoverStaleDeployments;
 
 module.exports = db;

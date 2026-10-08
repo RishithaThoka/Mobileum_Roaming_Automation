@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Edit3, Shield, AlertTriangle, CheckCircle2, XCircle, Eye, EyeOff, Copy, Check } from 'lucide-react';
+import { Users, Plus, Edit3, Shield, AlertTriangle, CheckCircle2, XCircle, Eye, EyeOff, Copy, Check, UserX, UserCheck } from 'lucide-react';
 
 // @ts-ignore
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -153,6 +153,26 @@ export const UsersView: React.FC = () => {
       navigator.clipboard.writeText(tempPassword);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleToggleStatus = async (user: User) => {
+    const newStatus = user.status === 'active' ? 'inactive' : 'active';
+    if (newStatus === 'inactive' && !confirm(`Deactivate ${user.username}? This will immediately log them out and block future logins.`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/users/${user.id}`, {
+        method: 'PATCH',
+        headers: getHeaders(),
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        setError(errData.error || 'Failed to update status');
+      } else {
+        await fetchUsers();
+      }
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -469,13 +489,28 @@ export const UsersView: React.FC = () => {
                       {user.created_at ? new Date(user.created_at).toLocaleDateString() : '—'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button
-                        onClick={() => openEdit(user)}
-                        className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-blue-500/20 text-slate-500 hover:text-blue-400 rounded-lg transition-colors"
-                        title="Edit user"
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center space-x-1 justify-end">
+                        <button
+                          onClick={() => openEdit(user)}
+                          className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-blue-500/20 text-slate-500 hover:text-blue-400 rounded-lg transition-colors"
+                          title="Edit user"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(user)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            user.status === 'active'
+                              ? 'bg-slate-100 dark:bg-slate-800 hover:bg-rose-500/20 text-slate-500 hover:text-rose-400'
+                              : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 hover:text-emerald-400'
+                          }`}
+                          title={user.status === 'active' ? 'Deactivate user' : 'Reactivate user'}
+                        >
+                          {user.status === 'active'
+                            ? <UserX className="w-3.5 h-3.5" />
+                            : <UserCheck className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

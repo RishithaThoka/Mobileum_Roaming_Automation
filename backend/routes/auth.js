@@ -18,17 +18,26 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'username and password are required' });
     }
 
+    // [DIAG] log every login attempt to server console
+    console.log(`[auth/login] attempt: username="${username}" password_len=${(password||'').length}`);
+
     const user = await db('users').where({ username }).first();
     if (!user) {
+      console.log(`[auth/login] FAIL: no user row found for "${username}"`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
+    console.log(`[auth/login] user found: role=${user.role} status=${user.status} hash_prefix=${(user.password_hash||'').substring(0,7)}`);
+
     if (user.status !== 'active') {
+      console.log(`[auth/login] FAIL: status="${user.status}" (not active)`);
       return res.status(401).json({ error: 'Account is inactive — contact an administrator' });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
+    console.log(`[auth/login] bcrypt.compare result: ${valid}`);
     if (!valid) {
+      console.log(`[auth/login] FAIL: password mismatch for "${username}"`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
