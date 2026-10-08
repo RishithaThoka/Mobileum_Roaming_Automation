@@ -1,0 +1,19 @@
+Field,Value
+Operator Name,Voda Test
+Country,Italy
+Network Code,22210
+TADIG Code,ITAVT
+Document Type,RAEX
+HLR Global Title,39001234567
+Signalling Point Code,2-022-1
+GRX IPX Provider,VODA-IPX
+APN Roaming,voda.roam.it
+Wholesale Tariff Rate,0.015
+Currency,EUR
+IMSI Range,222100000000000-222109999999999
+MSISDN Range,393400000000-393409999999999
+SMS Center Number,+39348000000
+Fraud Contact Email,fraud@voda-test.it
+Steering Of Roaming Supported,Yes
+Legal Jurisdiction,Italy
+Support Hours,24x7

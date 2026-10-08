@@ -5,26 +5,35 @@
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:contract":  "node scripts/check_api_contract.js",
+    "test:golden":    "node tests/test_field_ownership_golden.js",
+    "test:holdout":   "node tests/test_field_ownership_holdout.js",
+    "test:admin":     "node tests/test_ownership_admin.js",
+    "test:routing":   "node tests/test_domain_routing.js",
+    "test:policy":    "node tests/test_workflow_policy.js",
+    "test:unit":      "node tests/test_workflow_engine_unit.js",
+    "test": "node scripts/check_api_contract.js && node tests/test_field_ownership_golden.js && node tests/test_field_ownership_holdout.js && node tests/test_workflow_engine_unit.js && echo --- REQUIRES RUNNING SERVER --- && node tests/test_ownership_admin.js && node tests/test_domain_routing.js && node tests/test_workflow_policy.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.3",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.11.1",
     "cors": "^2.8.6",
     "docx": "^9.7.1",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "fast-xml-parser": "^5.10.1",
+    "knex": "^3.3.0",
     "mammoth": "^1.12.0",
     "multer": "^2.2.0",
     "nodemailer": "^9.0.3",
-    "@sendgrid/mail": "^8.1.3",
     "pdf-parse": "1.1.1",
     "pdfjs-dist": "^4.4.162",
+    "pdfkit": "^0.15.0",
     "uuid": "^14.0.1",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "pdfkit": "^0.15.0"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   }
 }

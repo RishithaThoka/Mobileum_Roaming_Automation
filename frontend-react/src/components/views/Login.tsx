@@ -4,8 +4,8 @@ import { Sparkles, KeyRound, User, AlertCircle } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const { login, setActiveTab } = useStore();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,7 +16,7 @@ export const Login: React.FC = () => {
     try {
       const success = await login(username, password);
       if (!success) {
-        setError('Invalid admin credentials. Please try again.');
+        setError('Invalid credentials. Please try again.');
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred during authentication.');
@@ -70,7 +70,7 @@ export const Login: React.FC = () => {
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
+                placeholder="you@example.com"
                 className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-mono"
               />
             </div>

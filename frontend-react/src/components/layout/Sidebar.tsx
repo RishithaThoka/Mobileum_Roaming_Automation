@@ -24,9 +24,15 @@ import {
   MapPin,
   ChevronLeft,
   ChevronRight,
-  Activity
+  Activity,
+  Eye,
+  Shield,
+  BookOpen,
+  Sliders,
+  ChevronDown,
+  XCircle
 } from 'lucide-react';
-import { useStore } from '../../store/useStore';
+import { useStore, canAccessTab } from '../../store/useStore';
 import { NavigationTab } from '../../types';
 
 interface SidebarItem {
@@ -38,11 +44,19 @@ interface SidebarItem {
   category: 'Control Panel' | 'Baseline Pipeline (Steps 1-11)' | 'Network & Systems';
 }
 
+interface OwnershipEngineItem {
+  id: NavigationTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
 export const Sidebar: React.FC = () => {
-  const { activeTab, setActiveTab, approvalChains, deltas, notifications, emails } = useStore();
+  const { activeTab, setActiveTab, activeRole, approvalChains, deltas, notifications, emails } = useStore();
   const [collapsed, setCollapsed] = React.useState(false);
+  const [ownershipExpanded, setOwnershipExpanded] = React.useState(true);
 
   const pendingApprovalsCount = approvalChains.filter((a) => a.status === 'In Progress' || a.status === 'Pending').length;
+  const rejectedWorkflowsCount = approvalChains.filter((a) => a.status === 'Rejected').length;
   const unresolvedDeltasCount = deltas.filter((d) => d.status === 'Unresolved').length;
   const unreadNotifsCount = notifications.filter((n) => !n.read).length;
   const pendingEmailsCount = emails.filter((e) => e.processedStatus === 'Pending Ingestion').length;
@@ -60,6 +74,7 @@ export const Sidebar: React.FC = () => {
     { id: 'difference-checker', label: '04. Difference Checker', icon: GitCompare, badge: unresolvedDeltasCount > 0 ? unresolvedDeltasCount : undefined, badgeColor: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400', category: 'Baseline Pipeline (Steps 1-11)' },
     { id: 'executive-dashboard', label: '05. Executive Risk Matrix', icon: TrendingUp, category: 'Baseline Pipeline (Steps 1-11)' },
     { id: 'approval-workflow', label: '06. Approval Sign-offs', icon: CheckSquare, badge: pendingApprovalsCount > 0 ? pendingApprovalsCount : undefined, badgeColor: 'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-400', category: 'Baseline Pipeline (Steps 1-11)' },
+    { id: 'rejected-items', label: '   ↳ Rejected Items', icon: XCircle, badge: rejectedWorkflowsCount > 0 ? rejectedWorkflowsCount : undefined, badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400', category: 'Baseline Pipeline (Steps 1-11)' },
     { id: 'governance-pipeline', label: '07. Staging Script Buffer', icon: Layers, category: 'Baseline Pipeline (Steps 1-11)' },
     { id: 'integration-matrix', label: '08. Switch Provisioning', icon: Server, category: 'Baseline Pipeline (Steps 1-11)' },
     { id: 'digital-twin', label: '09. Digital Twin Diagnostics', icon: Activity, category: 'Baseline Pipeline (Steps 1-11)' },
@@ -71,7 +86,17 @@ export const Sidebar: React.FC = () => {
     { id: 'email-center', label: 'Email Ingestion Daemon', icon: Mail, badge: pendingEmailsCount > 0 ? pendingEmailsCount : undefined, badgeColor: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-400', category: 'Network & Systems' },
     { id: 'notifications', label: 'System Notifications', icon: Bell, badge: unreadNotifsCount > 0 ? unreadNotifsCount : undefined, badgeColor: 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-400', category: 'Network & Systems' },
     { id: 'settings', label: 'Platform Configuration', icon: Settings, category: 'Network & Systems' },
+    { id: 'users', label: 'User Management', icon: Users, category: 'Network & Systems' },
   ];
+
+  // Ownership Engine items (Admin only)
+  const OWNERSHIP_ENGINE_ITEMS: OwnershipEngineItem[] = [
+    { id: 'admin-rules',     label: 'Classification Rules', icon: Shield },
+    { id: 'admin-catalog',   label: 'Field Catalog',        icon: BookOpen },
+    { id: 'admin-overrides', label: 'Field Overrides',      icon: Sliders },
+  ];
+
+  const isOwnershipAdmin = activeRole === 'Admin';
 
   const categories: ('Control Panel' | 'Baseline Pipeline (Steps 1-11)' | 'Network & Systems')[] = [
     'Control Panel',
@@ -119,8 +144,35 @@ export const Sidebar: React.FC = () => {
 
         {/* Navigation List */}
         <nav className="p-3 space-y-4 overflow-y-auto max-h-[calc(100vh-8rem)]">
+          {/* Document Viewer shortcut — shown when a doc is selected */}
+          {canAccessTab(activeRole, 'document-viewer') && (
+            <div className="space-y-1">
+              {!collapsed && (
+                <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Document</div>
+              )}
+              <button
+                onClick={() => setActiveTab('document-viewer')}
+                title={collapsed ? 'Document Viewer' : undefined}
+                className={`w-full flex items-center ${
+                  collapsed ? 'justify-center px-2' : 'justify-between px-3'
+                } py-2 rounded-xl text-xs font-semibold transition-all group ${
+                  activeTab === 'document-viewer'
+                    ? 'bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-white border border-blue-200 dark:border-blue-500/30 shadow-sm'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <Eye className={`w-4 h-4 transition-colors ${
+                    activeTab === 'document-viewer' ? 'text-blue-600 dark:text-cyan-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200'
+                  }`} />
+                  {!collapsed && <span>Document Viewer</span>}
+                </div>
+              </button>
+            </div>
+          )}
+
           {categories.map((cat) => {
-            const items = SIDEBAR_ITEMS.filter((i) => i.category === cat);
+            const items = SIDEBAR_ITEMS.filter((i) => i.category === cat && canAccessTab(activeRole, i.id));
             return (
               <div key={cat} className="space-y-1">
                 {!collapsed && (
@@ -170,6 +222,51 @@ export const Sidebar: React.FC = () => {
               </div>
             );
           })}
+
+          {/* ⚙ Ownership Engine — Admin only */}
+          {isOwnershipAdmin && (
+            <div className="space-y-1">
+              {!collapsed && (
+                <button
+                  onClick={() => setOwnershipExpanded(v => !v)}
+                  className="w-full px-3 flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-violet-500 dark:text-violet-400 mb-1 hover:text-violet-700 dark:hover:text-violet-300 transition-colors"
+                >
+                  <span>⚙ Ownership Engine</span>
+                  {ownershipExpanded
+                    ? <ChevronDown className="w-3 h-3" />
+                    : <ChevronRight className="w-3 h-3" />
+                  }
+                </button>
+              )}
+              {collapsed && <div className="px-3 py-1"><Sliders className="w-3.5 h-3.5 text-violet-400" /></div>}
+
+              {(ownershipExpanded || collapsed) && OWNERSHIP_ENGINE_ITEMS.map(item => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    title={collapsed ? item.label : undefined}
+                    className={`w-full flex items-center ${
+                      collapsed ? 'justify-center px-2' : 'justify-start px-3'
+                    } py-2 rounded-xl text-xs font-semibold transition-all group ${
+                      isActive
+                        ? 'bg-violet-50 dark:bg-violet-600/20 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-500/30 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Icon className={`w-4 h-4 transition-colors ${
+                        isActive ? 'text-violet-600 dark:text-violet-400' : 'text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200'
+                      }`} />
+                      {!collapsed && <span>{item.label}</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </nav>
       </div>
 

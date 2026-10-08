@@ -40,8 +40,8 @@ async function classifyDomain(fieldPath, oldValue, newValue) {
     return { domain: 'Commercial (IOT)', category: 'Commercial (IOT)', severity: 'critical', needs_review: 0 };
   }
 
-  // 2. AI Classification Pass (Claude / Anthropic API when configured)
-  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.OPENAI_API_KEY;
+  // 2. AI Classification Pass (Groq API when configured)
+  const apiKey = process.env.GROQ_API_KEY;
   if (apiKey && process.env.ENABLE_AI_CLASSIFIER === 'true') {
     try {
       const aiDomain = await callLlmDomainClassifier(fieldPath, oldValue, newValue);
@@ -74,13 +74,29 @@ function inferSeverity(domain) {
 }
 
 async function callLlmDomainClassifier(fieldPath, oldValue, newValue) {
-  const { callGeminiJSON } = require('./aiClient');
+  const { callGemini } = require('./aiClient'); // callGemini, not callGeminiJSON
   try {
-    const result = await callGeminiJSON({
-      system: 'You classify a changed field from a telecom roaming document into exactly one of these six domains: "Network/Technical", "Security", "Commercial", "Financial/Billing", "Legal/Compliance", "Operations".',
-      prompt: `Field path: ${fieldPath}\nOld value: ${oldValue}\nNew value: ${newValue}\n\nReturn ONLY JSON: {"domain": "<one of the six domains exactly>"}`,
-      maxTokens: 100
+    // Do NOT use json_object response_format (jsonMode: true) -- openai/gpt-oss-120b
+    // produces json_validate_failed on short single-key responses under that constraint.
+    // Instead ask for JSON in the prompt text and extract it from the free-text response.
+    const text = await callGemini({
+      system: 'You are a telecom roaming document classifier. Output ONLY a raw JSON object with no explanation, no preamble, no markdown. Classify the field change into exactly one of these five domains: "Routing (GT)", "Packet Core (APN)", "Voice/SMS (IMSI)", "Commercial (IOT)", "Security (IPsec)".',
+      prompt: `Return ONLY this JSON (nothing before or after it): {"domain": "<one of the five domains>"}\n\nField path: ${fieldPath}\nOld value: ${oldValue}\nNew value: ${newValue}`,
+      maxTokens: 500,   // 200 was too low -- model preamble consumed budget before JSON completed
+                        // 500 handles a verbose ~300-token preamble + ~15-token JSON safely
+      jsonMode: false   // bypass Groq server-side json_object enforcement; we parse ourselves
     });
+    // Diagnostic: log raw response length so truncation is detectable
+    console.log(`[domainClassifier] raw response length: ${(text || '').length} chars`);
+    // Extract the first { ... } object from the response (handles any preamble/markdown)
+    const cleaned = (text || '').replace(/```json|```/g, '').trim();
+    const match = cleaned.match(/\{[^}]+\}/);
+    if (!match) {
+      console.warn('[domainClassifier] LLM returned no JSON object in response (full text):', cleaned);
+      return null;
+    }
+    const result = JSON.parse(match[0]);
+    console.log(`[domainClassifier] AI classified "${fieldPath}" => domain: ${result && result.domain}`);
     return result && result.domain;
   } catch (err) {
     console.warn('[domainClassifier] LLM call failed:', err.message);

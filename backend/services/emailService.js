@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-const sgMail = require('@sendgrid/mail');
+const sgMail    = require('@sendgrid/mail');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 
@@ -10,9 +10,8 @@ function isConfigured() {
 async function getTransport() {
   const dns = require('dns').promises;
   let ipv4Host = process.env.SMTP_HOST;
-  
+
   try {
-    // Manually force IPv4 resolution
     const lookup = await dns.lookup(process.env.SMTP_HOST, { family: 4 });
     ipv4Host = lookup.address;
   } catch (e) {
@@ -29,84 +28,75 @@ async function getTransport() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-    tls: {
-      servername: process.env.SMTP_HOST, // Required so Google SSL matches smtp.gmail.com instead of the IP
-      rejectUnauthorized: true,
-    },
   });
 }
 
-async function sendApprovalEmail({ approvalStepId, toEmail, approverName, roleTitle, documentTitle, operatorName, docType, diffItems, approveUrl, rejectUrl, viewUrl }) {
-  const rows = diffItems.map(i =>
-    `<tr>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e2da;font-family:monospace;font-size:12px;color:#555;">${i.field_path}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e2da;color:#b23b3b;text-decoration:line-through;">${i.old_value ?? '—'}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e2da;color:#1c7a4d;font-weight:600;">${i.new_value ?? '—'}</td>
-      <td style="padding:8px 12px;border-bottom:1px solid #e5e2da;">
-        <span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;background:${
-          i.severity === 'critical' ? '#fbe4e2;color:#a12b1f' : i.severity === 'major' ? '#fdf0d5;color:#8a5a00' : '#e7f0ea;color:#2f6b47'
-        };">${i.severity.toUpperCase()}</span>
-      </td>
-    </tr>`
-  ).join('');
+async function sendApprovalEmail({
+  approvalStepId, toEmail, approverName, roleTitle,
+  documentTitle, operatorName, docType, diffItems,
+  approveUrl, rejectUrl, viewUrl,
+}) {
+  const logId = uuid();
+  const subject = `Action Required: Review ${docType} changes for ${operatorName}`;
 
-  const subject = `[Action Required] ${docType} update from ${operatorName} — ${roleTitle} sign-off needed`;
+  const changesHtml = diffItems.slice(0, 15).map(i => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${i.field_path}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${i.change_type}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${i.old_value || '—'}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${i.new_value || '—'}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;color:${i.severity === 'critical' ? '#dc2626' : i.severity === 'major' ? '#d97706' : '#059669'}">${(i.severity || 'minor').toUpperCase()}</td>
+    </tr>`).join('');
 
   const html = `
-  <div style="font-family:Segoe UI, Arial, sans-serif; max-width:680px; margin:0 auto; color:#2b2b2b;">
-    <div style="background:#14213d;padding:20px 28px;border-radius:8px 8px 0 0;">
-      <span style="color:#f5f0e6;font-size:18px;font-weight:700;letter-spacing:0.3px;">Roaming Document Control Center</span>
-    </div>
-    <div style="border:1px solid #e5e2da;border-top:none;border-radius:0 0 8px 8px;padding:28px;">
-      <p style="font-size:15px;">Hello ${approverName || roleTitle},</p>
-      <p style="font-size:14px;line-height:1.5;">
-        <strong>${operatorName}</strong> has submitted an updated <strong>${docType}</strong> document
-        (<em>${documentTitle}</em>). The following changes fall within your domain
-        (<strong>${roleTitle}</strong>) and require your approval before the document can proceed.
-      </p>
-      <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:13px;">
-        <thead>
-          <tr style="background:#f4f1ea;text-align:left;">
-            <th style="padding:8px 12px;">Field</th>
-            <th style="padding:8px 12px;">Previous</th>
-            <th style="padding:8px 12px;">New</th>
-            <th style="padding:8px 12px;">Severity</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-      <div style="margin:24px 0;">
-        <a href="${approveUrl}" style="background:#1c7a4d;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;margin-right:12px;">Approve</a>
-        <a href="${rejectUrl}" style="background:#a12b1f;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:600;">Reject</a>
+    <!DOCTYPE html><html><body style="font-family:Segoe UI,Arial,sans-serif;background:#f4f1ea;padding:24px;margin:0;">
+    <div style="max-width:680px;margin:0 auto;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,0.08);overflow:hidden;">
+      <div style="background:#0F172A;padding:28px 36px;">
+        <h1 style="color:#38BDF8;margin:0;font-size:20px;">Roaming Control Center</h1>
+        <p style="color:#94A3B8;margin:8px 0 0;font-size:14px;">Approval Request</p>
       </div>
-      <p style="font-size:12px;color:#777;">Or review the full change record in the portal: <a href="${viewUrl}">${viewUrl}</a></p>
-      <p style="font-size:11px;color:#999;margin-top:24px;">This message contains only the fields relevant to your domain. Other approvers in this workflow see only their own scope.</p>
-    </div>
-  </div>`;
+      <div style="padding:32px 36px;">
+        <p style="color:#334155;font-size:16px;">Dear ${approverName || roleTitle},</p>
+        <p style="color:#334155;">You have been assigned to review <strong>${docType}</strong> document changes for operator <strong>${operatorName}</strong>.</p>
+        <p style="color:#334155;"><strong>Document:</strong> ${documentTitle}</p>
+        ${diffItems.length > 0 ? `
+        <h3 style="color:#0F172A;border-bottom:2px solid #E2E8F0;padding-bottom:8px;">Changes Requiring Your Review (${diffItems.length})</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead><tr style="background:#F1F5F9;">
+            <th style="padding:10px 8px;text-align:left;">Field</th>
+            <th style="padding:10px 8px;text-align:left;">Type</th>
+            <th style="padding:10px 8px;text-align:left;">Before</th>
+            <th style="padding:10px 8px;text-align:left;">After</th>
+            <th style="padding:10px 8px;text-align:left;">Severity</th>
+          </tr></thead><tbody>${changesHtml}</tbody>
+        </table>` : '<p style="color:#64748B;">No specific changes were flagged for your category.</p>'}
+        <div style="margin:32px 0;display:flex;gap:12px;">
+          <a href="${approveUrl}" style="background:#059669;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;">✓ Approve</a>
+          <a href="${rejectUrl}" style="background:#DC2626;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;margin-left:12px;">✗ Reject</a>
+          <a href="${viewUrl}"  style="background:#0EA5E9;color:#fff;padding:14px 28px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block;margin-left:12px;">View Full Diff</a>
+        </div>
+        <p style="color:#94A3B8;font-size:12px;margin-top:24px;">This email was sent by the Roaming Document Control Center. Do not reply to this email.</p>
+      </div>
+    </div></body></html>`;
 
-  const logId = uuid();
-  let mode = 'simulated';
+  let mode  = 'simulated';
   let error = null;
 
   if (isConfigured()) {
     try {
-      const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@mobileum.com';
-      
       if (process.env.SENDGRID_API_KEY) {
-        // SendGrid API routing
         sgMail.setApiKey(process.env.SENDGRID_API_KEY);
         await sgMail.send({
           to: toEmail,
-          from: fromEmail,
+          from: process.env.SMTP_FROM || 'noreply@roaming-control.local',
           subject,
           html,
         });
         mode = 'sent (sendgrid)';
       } else {
-        // SMTP Fallback routing
         const transport = await getTransport();
         await transport.sendMail({
-          from: fromEmail,
+          from: process.env.SMTP_FROM || process.env.SMTP_USER,
           to: toEmail,
           subject,
           html,
@@ -114,14 +104,20 @@ async function sendApprovalEmail({ approvalStepId, toEmail, approverName, roleTi
         mode = 'sent (smtp)';
       }
     } catch (err) {
-      mode = 'failed';
-      // SendGrid errors are sometimes nested
+      mode  = 'failed';
       error = err.response ? err.response.body.errors[0].message : err.message;
     }
   }
 
-  db.prepare(`INSERT INTO email_log (id, approval_step_id, to_email, subject, body, mode, error) VALUES (?,?,?,?,?,?,?)`)
-    .run(logId, approvalStepId, toEmail, subject, html, mode, error);
+  await db('email_log').insert({
+    id: logId,
+    approval_step_id: approvalStepId,
+    to_email: toEmail,
+    subject,
+    body: html,
+    mode,
+    error,
+  });
 
   return { mode, error, logId };
 }

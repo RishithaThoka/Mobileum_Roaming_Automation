@@ -1,18 +1,13 @@
 export type UserRole =
   | 'Admin'
   | 'Analyst'
-  | 'Document Reviewer'
-  | 'CMO'
-  | 'CTO'
-  | 'Security'
-  | 'Finance'
-  | 'Network Operations'
-  | 'Partner Operator'
-  | 'Read Only Auditor';
+  | 'Approver'
+  | 'CPO/Exec'
+  | 'Auditor';
 
 export type ProductTier = 'Tier 1 - Entry' | 'Tier 2 - Mid' | 'Tier 3 - Advanced';
 
-export type StepStatus = 'completed' | 'current' | 'upcoming' | 'rejected' | 'waiting';
+export type StepStatus = 'completed' | 'current' | 'upcoming' | 'rejected' | 'waiting' | 'not_applicable';
 
 export interface WorkflowStepDefinition {
   id: number;
@@ -26,6 +21,55 @@ export interface WorkflowStepDefinition {
   isRequiredActionDone: boolean;
   validationErrorMessage?: string;
   nextStepName: string;
+}
+
+// ── Backend workflow API response shapes ───────────────────────────────────────
+
+export interface BackendSubstage {
+  id: 'extraction' | 'comparison' | 'diff' | 'risk';
+  title: string;
+  status: 'pending' | 'complete' | 'failed' | 'not_applicable';
+  completed_at: string | null;
+  error_message: string | null;
+  reason: string | null;
+  legacy_inferred: boolean;
+}
+
+export interface WorkflowApiResponse {
+  state: {
+    id: string;
+    document_id: string;
+    current_screen: number;
+    // running | ready_for_approval | in_approval | approved | rejected
+    // deploying | deployed | failed | rolled_back
+    stage_status: string;
+    updated_at: string;
+  };
+  subStages: BackendSubstage[];
+  payloadData: {
+    extraction: any;
+    comparison: { baseline: string; latest: string };
+    diff: any[];
+    risk: { level: string; details: string };
+  };
+  domains: string[];
+  approvalChain: Array<{
+    domain: string;
+    role: string;
+    status: 'Pending' | 'Approved' | 'Rejected';
+    signature: any | null;
+  }>;
+  signatures: any[];
+  deployment_logs: Array<{
+    id: string;
+    document_id: string;
+    system: string;
+    scope: string;
+    order_executed: number;
+    pass_fail: 'pass' | 'fail';
+    rollback_triggered: number;
+    timestamp: string;
+  }>;
 }
 
 export interface RolePermission {
@@ -256,6 +300,7 @@ export type NavigationTab =
   | 'digital-twin'
   | 'reconciliation'
   | 'documents'
+  | 'document-viewer'
   | 'master-repo'
   | 'version-control'
   | 'difference-checker'
@@ -270,4 +315,99 @@ export type NavigationTab =
   | 'partners'
   | 'analytics'
   | 'ai-assistant'
-  | 'settings';
+  | 'settings'
+  | 'users'
+  | 'admin-rules'
+  | 'admin-catalog'
+  | 'admin-overrides'
+  | 'rejected-items';
+
+
+// ── Document Viewer / Field Editor ────────────────────────────────────────────
+
+export type OwnerSource = 'auto' | 'catalog' | 'override' | 'fallback';
+
+export interface DocFieldEntry {
+  path: string;          // e.g. "General.Operator Name"
+  section: string;       // e.g. "General"
+  label: string;         // e.g. "Operator Name"
+  value: string;
+  domain: string;        // e.g. "Commercial (IOT)"
+  owner_source: OwnerSource;
+  rule_version: number;
+  editable: boolean;     // pre-computed by server based on user's role/domains
+  flagged?: boolean;     // multi-domain conflict
+  duplicate?: boolean;   // ambiguous label in source doc
+}
+
+export interface ApprovalStepDetail {
+  id: string;
+  step_order: number;
+  category: string;
+  role_title: string;
+  status: 'pending' | 'approved' | 'rejected' | 'waiting' | 'skipped';
+  routing_note: string | null;
+  self_approval_excluded_user_id: string | null;
+  // derived label (computed in viewer from routing_note + category)
+  displayLabel: string;
+  isAutoTier: boolean;            // true = Admin Pre-Review from auto_tier policy
+  isSelfApprovalFallback: boolean; // true = rerouted because editor was only approver
+}
+
+export interface DocFieldValue {
+  value: string;
+  owner_domain: string;
+  owner_source: OwnerSource;
+  pending_owner_confirmation: boolean;
+  editable: boolean;
+  locked_reason: string | null;
+}
+
+export interface DocFieldsResponse {
+  document: {
+    id: string;
+    title: string;
+    doc_type: string;
+    operator_name: string | null;
+    operator_country: string | null;
+  };
+  base_version_id: string;
+  base_version_number: number;
+  fields: Record<string, DocFieldValue>;  // each value is an object, NOT a raw string
+  edit_locked: boolean;
+  pending_diff_id: string | null;
+  // approval steps for the active diff (only present when edit_locked=true)
+  approval_steps?: ApprovalStepDetail[];
+}
+
+// ── Admin Ownership Engine ─────────────────────────────────────────────────────
+
+export interface AdminRule {
+  id: string;
+  domain: string;
+  match_field: 'label' | 'path' | 'section';
+  keywords: string[];   // parsed from comma-separated DB column
+  priority: number;
+  active: boolean;
+  created_at?: string;
+}
+
+export interface CatalogEntry {
+  id: string;
+  field_path: string;
+  domain: string;
+  doc_type: string;      // '*' = any
+  operator_id: string | null; // null = any
+  active: boolean;
+  flagged?: boolean;     // e.g. multi-domain conflict noted at seed time
+  source_note?: string;  // e.g. 'GSMA TS.34 §4.2'
+}
+
+export interface Override {
+  id: string;
+  field_path: string;
+  domain: string;
+  operator_id: string | null; // null = global
+  operator_name?: string;     // resolved for display
+  created_at: string;
+}

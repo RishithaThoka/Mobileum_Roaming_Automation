@@ -1,15 +1,13 @@
-const fs = require('fs');
+'use strict';
+
+const fs   = require('fs');
 const path = require('path');
 const { v4: uuid } = require('uuid');
 const db = require('../db');
 const ingestionService = require('./ingestionService');
-const workflowEngine = require('./workflowEngine');
+const workflowEngine   = require('./workflowEngine');
 
-// Every operator in "heartbeat" mode gets a folder here. In a real deployment
-// this would instead be an SFTP mailbox, a shared drive, or an API endpoint
-// on the operator's side that gets polled — the "watch a folder" version is
-// a faithful local stand-in for the exact same pattern: check a known
-// location on a schedule, ingest whatever's new.
+// Every operator in "heartbeat" mode gets a folder here.
 const WATCH_ROOT = path.join(__dirname, '..', 'heartbeat-watch');
 
 function watchFolderFor(operatorId) {
@@ -18,13 +16,13 @@ function watchFolderFor(operatorId) {
   return dir;
 }
 
-let lastScanAt = null;
+let lastScanAt      = null;
 let lastScanSummary = [];
 
 async function scanOperatorFolder(operator) {
-  const dir = watchFolderFor(operator.id);
+  const dir       = watchFolderFor(operator.id);
   const filenames = fs.readdirSync(dir).filter(f => !f.startsWith('.'));
-  const results = [];
+  const results   = [];
 
   for (const filename of filenames) {
     const filePath = path.join(dir, filename);
@@ -33,9 +31,11 @@ async function scanOperatorFolder(operator) {
     if (!stat.isFile()) continue;
 
     const mtime = String(stat.mtimeMs);
-    const seen = db.prepare(`SELECT * FROM heartbeat_seen_files WHERE operator_id = ? AND filename = ?`).get(operator.id, filename);
+    const seen  = await db('heartbeat_seen_files')
+      .where({ operator_id: operator.id, filename })
+      .first();
 
-    if (seen && seen.file_mtime === mtime) continue; // unchanged since last check — skip
+    if (seen && seen.file_mtime === mtime) continue; // unchanged — skip
 
     try {
       const ingestResult = await ingestionService.ingestDocumentVersion({
@@ -48,18 +48,32 @@ async function scanOperatorFolder(operator) {
       });
 
       if (seen) {
-        db.prepare(`UPDATE heartbeat_seen_files SET file_mtime = ?, ingested_at = datetime('now') WHERE id = ?`).run(mtime, seen.id);
+        await db('heartbeat_seen_files').where({ id: seen.id }).update({
+          file_mtime: mtime,
+          ingested_at: new Date().toISOString(),
+        });
       } else {
-        db.prepare(`INSERT INTO heartbeat_seen_files (id, operator_id, filename, file_mtime, ingested_at) VALUES (?,?,?,?,datetime('now'))`)
-          .run(uuid(), operator.id, filename, mtime);
+        await db('heartbeat_seen_files').insert({
+          id: uuid(),
+          operator_id: operator.id,
+          filename,
+          file_mtime: mtime,
+          ingested_at: new Date().toISOString(),
+        });
       }
 
-      workflowEngine.logAudit('heartbeat', operator.id, 'scanned', 'system',
-        `Heartbeat picked up "${filename}" for ${operator.name}` + (ingestResult.diff ? ` — ${ingestResult.diff.totalChanges} change(s) detected` : ' — stored as baseline version'));
+      workflowEngine.logAudit(
+        'heartbeat', operator.id, 'scanned', 'system',
+        `Heartbeat picked up "${filename}" for ${operator.name}` +
+        (ingestResult.diff ? ` — ${ingestResult.diff.totalChanges} change(s) detected` : ' — stored as baseline version'),
+      );
 
       results.push({ operator: operator.name, filename, diff: ingestResult.diff });
     } catch (err) {
-      workflowEngine.logAudit('heartbeat', operator.id, 'error', 'system', `Failed to ingest "${filename}" for ${operator.name}: ${err.message}`);
+      workflowEngine.logAudit(
+        'heartbeat', operator.id, 'error', 'system',
+        `Failed to ingest "${filename}" for ${operator.name}: ${err.message}`,
+      );
     }
   }
 
@@ -67,8 +81,9 @@ async function scanOperatorFolder(operator) {
 }
 
 async function scanAllOperators() {
-  const operators = db.prepare(`SELECT * FROM operators WHERE ingest_mode = 'heartbeat' AND status = 'active'`).all();
-  operators.forEach(op => watchFolderFor(op.id)); // ensure folders exist even with nothing dropped in yet
+  const operators = await db('operators')
+    .where({ ingest_mode: 'heartbeat', status: 'active' });
+  operators.forEach(op => watchFolderFor(op.id)); // ensure folders exist
 
   const allResults = [];
   for (const operator of operators) {
@@ -76,7 +91,7 @@ async function scanAllOperators() {
     allResults.push(...results);
   }
 
-  lastScanAt = new Date().toISOString();
+  lastScanAt      = new Date().toISOString();
   lastScanSummary = allResults;
   return allResults;
 }
@@ -84,7 +99,7 @@ async function scanAllOperators() {
 let intervalHandle = null;
 
 function start(intervalMs) {
-  if (intervalHandle) return; // already running
+  if (intervalHandle) return;
   scanAllOperators().catch(err => console.error('Heartbeat initial scan failed:', err.message));
   intervalHandle = setInterval(() => {
     scanAllOperators().catch(err => console.error('Heartbeat scan failed:', err.message));
@@ -96,8 +111,10 @@ function stop() {
   intervalHandle = null;
 }
 
-function status() {
-  const operators = db.prepare(`SELECT id, name, country, default_doc_type FROM operators WHERE ingest_mode = 'heartbeat' AND status = 'active'`).all();
+async function status() {
+  const operators = await db('operators')
+    .select('id', 'name', 'country', 'default_doc_type')
+    .where({ ingest_mode: 'heartbeat', status: 'active' });
   return {
     running: !!intervalHandle,
     lastScanAt,

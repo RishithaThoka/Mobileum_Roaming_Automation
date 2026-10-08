@@ -1,0 +1,31 @@
+OPERATOR PROFILE
+Operator Name: Acme Wireless
+Country: Germany
+Network Code: 26290
+TADIG Code: DEUAW
+Document Type: IR21
+
+NETWORK TECHNICAL
+Signalling Point Code: 3-123-5
+Global Title: 49123456789
+APN Roaming: internet.acme.de
+GRX IPX Provider: ACME-GRX
+IPsec Policy: IKEv2-AES256
+Encryption Algorithm: AES-256-CBC
+Fraud Contact Email: security@acme.de
+Steering Of Roaming Supported: Yes
+
+FINANCIAL BILLING
+Wholesale Voice Rate: 0.012
+Currency: EUR
+Tax Policy Standard VAT: 19%
+Wholesale Data Rate Per MB: 0.0005
+
+FINANCIAL BILLING
+Currency: USD
+
+VOICE SMS
+IMSI Range: 262900000000000-262909999999999
+MSISDN Range: 491780000000-491789999999
+SMS Center Number: +4917610000
+Voice Profile: G.711

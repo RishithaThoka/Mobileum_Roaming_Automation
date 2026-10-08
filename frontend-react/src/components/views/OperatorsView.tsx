@@ -1,11 +1,24 @@
-import React from 'react';
-import { Globe } from 'lucide-react';
+import React, { useState } from 'react';
+import { Globe, Filter } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { HelpTooltip } from '../common/HelpTooltip';
 import { StatusBadge } from '../common/StatusBadge';
 
 export const OperatorsView: React.FC = () => {
-  const { operators } = useStore();
+  const { operators, documents } = useStore();
+  const [approvedOnly, setApprovedOnly] = useState(false);
+
+  // Operators that have at least one document with approvalStatus = 'Approved'
+  const approvedOperatorNames = new Set(
+    documents
+      .filter(d => d.approvalStatus === 'Approved')
+      .map(d => d.operatorName)
+  );
+
+  const displayedOperators = approvedOnly
+    ? operators.filter(op => approvedOperatorNames.has(op.name))
+    : operators;
+
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
@@ -24,11 +37,32 @@ export const OperatorsView: React.FC = () => {
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Manage global partner operator specifications and roaming agreements.</p>
         </div>
+        <div className="flex items-center space-x-2">
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+            {displayedOperators.length} of {operators.length} operators
+          </span>
+          <button
+            onClick={() => setApprovedOnly(v => !v)}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+              approvedOnly
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+            }`}
+            title="Toggle: show only operators with fully approved documents"
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span>{approvedOnly ? 'Approved Docs Only' : 'All Connected'}</span>
+          </button>
+        </div>
       </div>
 
       {/* HIGHLIGHTED OPERATOR CARDS GRID - WHITE THEME */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {operators.map((op) => (
+        {displayedOperators.length === 0 ? (
+          <div className="col-span-3 p-16 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl">
+            <p className="text-slate-500 dark:text-slate-400 text-sm">No operators with fully approved documents yet.</p>
+          </div>
+        ) : displayedOperators.map((op) => (
           <div
             key={op.id}
             className="p-6 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-800 rounded-3xl space-y-4 shadow-md hover:shadow-xl hover:-translate-y-1 transition-all relative overflow-hidden group"

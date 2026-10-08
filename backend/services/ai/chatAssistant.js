@@ -4,46 +4,50 @@ const { callGeminiChat } = require('./aiClient');
 // Pulls a live snapshot of everything currently in the portal — operators,
 // documents, recent diffs, pending approvals — so the chat answers are
 // grounded in whatever's actually been uploaded, not training data.
-function buildContext() {
+async function buildContext() {
   try {
-    const operators = db.prepare(`SELECT id, name, country, region, network_code, status FROM operators`).all();
+    const operators = await db('operators')
+      .select('id', 'name', 'country', 'region', 'network_code', 'status');
 
-    const documents = db.prepare(`
-      SELECT d.id, d.doc_type, d.format, o.name as operator_name, o.country,
-             (SELECT COUNT(*) FROM document_versions WHERE document_id = d.id) as version_count,
-             (SELECT approval_status FROM document_versions WHERE id = d.current_version_id) as current_status
-      FROM documents d JOIN operators o ON o.id = d.operator_id
-    `).all();
+    const documents = await db('documents as d')
+      .select([
+        'd.id', 'd.doc_type', 'd.format',
+        'o.name as operator_name', 'o.country',
+        db.raw('(SELECT COUNT(*) FROM document_versions WHERE document_id = d.id) as version_count'),
+        db.raw('(SELECT approval_status FROM document_versions WHERE id = d.current_version_id) as current_status'),
+      ])
+      .join('operators as o', 'o.id', 'd.operator_id');
 
-    const diffs = db.prepare(`
-      SELECT df.id, df.status, df.total_changes, df.highest_severity, d.doc_type,
-             o.name as operator_name, df.created_at
-      FROM diffs df
-      JOIN documents d ON d.id = df.document_id
-      JOIN operators o ON o.id = d.operator_id
-      ORDER BY df.created_at DESC LIMIT 30
-    `).all();
+    const diffs = await db('diffs as df')
+      .select([
+        'df.id', 'df.status', 'df.total_changes', 'df.highest_severity',
+        'd.doc_type', 'o.name as operator_name', 'df.created_at',
+      ])
+      .join('documents as d', 'd.id', 'df.document_id')
+      .join('operators as o', 'o.id', 'd.operator_id')
+      .orderBy('df.created_at', 'desc')
+      .limit(30);
 
-    const pendingApprovals = db.prepare(`
-      SELECT s.role_title, s.approver_email, s.status, s.category, w.id as workflow_id
-      FROM approval_steps s JOIN approval_workflows w ON w.id = s.workflow_id
-      WHERE s.status IN ('pending','waiting') LIMIT 30
-    `).all();
+    const pendingApprovals = await db('approval_steps as s')
+      .select(['s.role_title', 's.approver_email', 's.status', 's.category', 'w.id as workflow_id'])
+      .join('approval_workflows as w', 'w.id', 's.workflow_id')
+      .whereIn('s.status', ['pending', 'waiting'])
+      .limit(30);
 
-    const recentDiffItems = db.prepare(`
-      SELECT field_path, category, domain, change_type, old_value, new_value, severity
-      FROM diff_items ORDER BY id DESC LIMIT 40
-    `).all();
+    const recentDiffItems = await db('diff_items')
+      .select('field_path', 'category', 'domain', 'change_type', 'old_value', 'new_value', 'severity')
+      .orderBy('id', 'desc')
+      .limit(40);
 
     return { operators, documents, diffs, pendingApprovals, recentDiffItems };
   } catch (e) {
-    console.error("[chatAssistant] Error building context:", e.message);
+    console.error('[chatAssistant] Error building context:', e.message);
     return { error: e.message, operators: [], documents: [], diffs: [], pendingApprovals: [], recentDiffItems: [] };
   }
 }
 
 async function answer(question, history = []) {
-  const ctx = buildContext();
+  const ctx = await buildContext();
   const system = `You are the Roaming Control Center AI Copilot. Answer using ONLY the live portal data given below. If the answer isn't in the data, say so plainly rather than guessing. Be concise, use bullet points for lists, and refer to operators/documents by the exact names given.
 
 PORTAL DATA (live snapshot):

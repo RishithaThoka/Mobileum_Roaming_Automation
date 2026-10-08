@@ -1,16 +1,20 @@
 import { WorkflowStepDefinition } from '../types';
 
+// Static metadata for the 11-step workflow tracker.
+// ALL status fields are 'upcoming' here — real per-document status is computed
+// dynamically by mapWorkflowSteps() in utils/mapWorkflowSteps.ts from the live
+// GET /api/workflow/:docId response.  Do NOT set statuses here.
 export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
   {
     id: 1,
     tabKey: 'documents',
     title: 'Repository Ingest',
     subtitle: 'Upload IR.21 XML, RAEX OpData & Agreement Files',
-    status: 'completed',
+    status: 'upcoming',
     owner: 'Document Ingestion Daemon',
     estimatedTime: '10 seconds',
     prerequisiteStepIds: [],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'AI Extraction',
   },
   {
@@ -18,11 +22,11 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     tabKey: 'ai-roadmap',
     title: 'AI Extraction',
     subtitle: 'OCR Parsing, GSMA Schema Inspection & Field Validation',
-    status: 'completed',
+    status: 'upcoming',
     owner: 'Tier 1 AI Roaming Analyst',
     estimatedTime: '15 seconds',
     prerequisiteStepIds: [1],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Version Comparison',
   },
   {
@@ -30,11 +34,11 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     tabKey: 'version-control',
     title: 'Version Comparison',
     subtitle: 'Compare Ingested File with Master Repository Baseline',
-    status: 'completed',
+    status: 'upcoming',
     owner: 'Master Repository Engine',
     estimatedTime: '5 seconds',
     prerequisiteStepIds: [1, 2],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Difference Analysis',
   },
   {
@@ -42,11 +46,11 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     tabKey: 'difference-checker',
     title: 'Difference Analysis',
     subtitle: 'Identify GT Routing, APN Core & Wholesale Tariff Deltas',
-    status: 'current',
+    status: 'upcoming',
     owner: 'Smart Delta Engine',
     estimatedTime: '30 seconds',
     prerequisiteStepIds: [1, 2, 3],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Risk Assessment',
   },
   {
@@ -54,11 +58,11 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     tabKey: 'executive-dashboard',
     title: 'Risk Assessment',
     subtitle: 'Evaluate Revenue Protection, Affected MNOs & Risk Matrix',
-    status: 'completed',
+    status: 'upcoming',
     owner: 'Mobileum Risk Protection Engine',
     estimatedTime: '20 seconds',
     prerequisiteStepIds: [4],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Approval Workflow',
   },
   {
@@ -66,11 +70,11 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     tabKey: 'approval-workflow',
     title: 'Approval Workflow',
     subtitle: '6-Stage Multi-Role Governance Authorization Pipeline',
-    status: 'waiting',
+    status: 'upcoming',
     owner: 'CTO & Security Office',
     estimatedTime: '2 minutes',
     prerequisiteStepIds: [4, 5],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Staging Queue',
   },
   {
@@ -82,7 +86,7 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     owner: 'NOC Orchestration Pipeline',
     estimatedTime: '45 seconds',
     prerequisiteStepIds: [6],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Production Deployment',
   },
   {
@@ -94,7 +98,7 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     owner: 'Core Switch Provisioning Daemon',
     estimatedTime: '1 minute',
     prerequisiteStepIds: [7],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Reconciliation Verification',
   },
   {
@@ -106,7 +110,7 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     owner: 'Digital Twin Simulation Sandbox',
     estimatedTime: '30 seconds',
     prerequisiteStepIds: [8],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Rollback Safety',
   },
   {
@@ -118,7 +122,7 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     owner: 'Automated Rollback Center',
     estimatedTime: '10 seconds',
     prerequisiteStepIds: [9],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Audit & Compliance Reports',
   },
   {
@@ -128,9 +132,9 @@ export const WORKFLOW_STEPS_DATA: WorkflowStepDefinition[] = [
     subtitle: 'Cryptographic GSMA Log Seals & Compliance Audits',
     status: 'upcoming',
     owner: 'Immutable Regulatory Audit Ledger',
-    estimatedTime: 'Completed',
+    estimatedTime: 'Continuous',
     prerequisiteStepIds: [10],
-    isRequiredActionDone: true,
+    isRequiredActionDone: false,
     nextStepName: 'Finish Workflow',
   },
 ];

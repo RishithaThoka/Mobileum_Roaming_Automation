@@ -28,7 +28,7 @@ export const AuditLogsView: React.FC = () => {
   );
 
   // Apply specific role sub-filters in the role-based tab
-  const activeRoleFilters = ['All', 'Admin', 'Analyst', 'CTO', 'CMO', 'Security', 'Finance'];
+  const activeRoleFilters = ['All', 'Admin', 'Analyst', 'Approver', 'CPO/Exec', 'Auditor'];
   const finalRoleLogs = roleLogs.filter(
     (log) => selectedRoleFilter === 'All' || log.role === selectedRoleFilter
   );

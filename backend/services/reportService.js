@@ -8,28 +8,34 @@ const workflowEngine = require('./workflowEngine');
 // Data Gathering
 // -----------------------------------------------------------------------------
 
-function getOperatorReportData(operatorId) {
-  const operator = db.prepare('SELECT * FROM operators WHERE id = ?').get(operatorId);
+async function getOperatorReportData(operatorId) {
+  const operator = await db('operators').where({ id: operatorId }).first();
   if (!operator) return null;
 
-  const documents = db.prepare('SELECT * FROM documents WHERE operator_id = ? ORDER BY created_at DESC').all(operator.id);
+  const documents = await db('documents')
+    .where({ operator_id: operator.id })
+    .orderBy('created_at', 'desc');
 
   for (const doc of documents) {
-    doc.versions = db.prepare('SELECT * FROM document_versions WHERE document_id = ? ORDER BY version_number DESC').all(doc.id);
+    doc.versions = await db('document_versions')
+      .where({ document_id: doc.id })
+      .orderBy('version_number', 'desc');
   }
 
   const docIds = documents.map(d => d.id);
   let diffs = [];
   if (docIds.length > 0) {
-    const placeholders = docIds.map(() => '?').join(',');
-    diffs = db.prepare(`SELECT d.*, doc.doc_type, doc.title as doc_title FROM diffs d JOIN documents doc ON d.document_id = doc.id WHERE d.document_id IN (${placeholders}) ORDER BY d.created_at DESC`).all(...docIds);
+    diffs = await db('diffs as d')
+      .select(['d.*', 'doc.doc_type', 'doc.title as doc_title'])
+      .join('documents as doc', 'd.document_id', 'doc.id')
+      .whereIn('d.document_id', docIds)
+      .orderBy('d.created_at', 'desc');
   }
 
   let diffItems = [];
   const diffIds = diffs.map(d => d.id);
   if (diffIds.length > 0) {
-    const placeholders = diffIds.map(() => '?').join(',');
-    diffItems = db.prepare(`SELECT * FROM diff_items WHERE diff_id IN (${placeholders})`).all(...diffIds);
+    diffItems = await db('diff_items').whereIn('diff_id', diffIds);
   }
 
   for (const diff of diffs) {
@@ -39,21 +45,17 @@ function getOperatorReportData(operatorId) {
   let activeApprovals = [];
   let emailLogs = [];
   if (diffIds.length > 0) {
-    const placeholders = diffIds.map(() => '?').join(',');
-    activeApprovals = db.prepare(`
-      SELECT s.*, w.diff_id, d.document_id, doc.doc_type, doc.title as doc_title
-      FROM approval_steps s
-      JOIN approval_workflows w ON s.workflow_id = w.id
-      JOIN diffs d ON w.diff_id = d.id
-      JOIN documents doc ON d.document_id = doc.id
-      WHERE w.diff_id IN (${placeholders})
-      ORDER BY s.step_order ASC
-    `).all(...diffIds);
+    activeApprovals = await db('approval_steps as s')
+      .select(['s.*', 'w.diff_id', 'd.document_id', 'doc.doc_type', 'doc.title as doc_title'])
+      .join('approval_workflows as w', 's.workflow_id', 'w.id')
+      .join('diffs as d', 'w.diff_id', 'd.id')
+      .join('documents as doc', 'd.document_id', 'doc.id')
+      .whereIn('w.diff_id', diffIds)
+      .orderBy('s.step_order', 'asc');
 
     const stepIds = activeApprovals.map(a => a.id);
     if (stepIds.length > 0) {
-      const stepPlaceholders = stepIds.map(() => '?').join(',');
-      emailLogs = db.prepare(`SELECT * FROM email_log WHERE approval_step_id IN (${stepPlaceholders})`).all(...stepIds);
+      emailLogs = await db('email_log').whereIn('approval_step_id', stepIds);
     }
   }
 
@@ -222,8 +224,8 @@ function drawTable(doc, startX, startY, columns, rows) {
 // Report Generation
 // -----------------------------------------------------------------------------
 
-function generateOperatorReportPDFStream(operatorId, outStream) {
-  const data = getOperatorReportData(operatorId);
+async function generateOperatorReportPDFStream(operatorId, outStream) {
+  const data = await getOperatorReportData(operatorId);
   if (!data) throw new Error('Operator not found');
   const { operator, documents, diffs, activeApprovals, emailLogs } = data;
 
@@ -451,7 +453,7 @@ function generateOperatorReportPDFStream(operatorId, outStream) {
 }
 
 async function generateAllOperatorReports() {
-  const operators = db.prepare(`SELECT * FROM operators WHERE status = 'active'`).all();
+  const operators = await db('operators').where({ status: 'active' });
   const dateStr = new Date().toISOString().split('T')[0];
   const reportsDir = path.join(__dirname, '..', 'reports', dateStr);
 
@@ -463,9 +465,9 @@ async function generateAllOperatorReports() {
     const filename = `${operator.name.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_report.pdf`;
     const filePath = path.join(reportsDir, filename);
     const writeStream = fs.createWriteStream(filePath);
-    
+
     try {
-      generateOperatorReportPDFStream(operator.id, writeStream);
+      await generateOperatorReportPDFStream(operator.id, writeStream);
       workflowEngine.logAudit('operator', operator.id, 'report_generated', 'system', `Generated daily PDF report for operator saved to ${filePath}`);
     } catch (e) {
       console.error(`Error generating report for operator ${operator.id}:`, e);

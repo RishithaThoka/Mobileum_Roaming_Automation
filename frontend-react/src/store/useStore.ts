@@ -11,8 +11,14 @@ import {
   ConnectedOperator,
   AuditLogItem,
   WorkflowStepDefinition,
-  OutlookEmailCategory
+  WorkflowApiResponse,
+  OutlookEmailCategory,
+  DocFieldsResponse,
+  AdminRule,
+  CatalogEntry,
+  Override,
 } from '../types';
+
 import { WORKFLOW_STEPS_DATA } from '../data/workflowStepsData';
 
 interface AutoRedirectState {
@@ -36,6 +42,8 @@ interface AppState {
   // Admin Session Auth
   isLoggedIn: boolean;
   token: string | null;
+  userFullName: string;
+  userEmail: string;
 
   // Heartbeat & SMTP Status
   heartbeatStatus: { running: boolean; last_scan?: string; last_summary?: string } | null;
@@ -45,9 +53,13 @@ interface AppState {
   workflowSteps: WorkflowStepDefinition[];
   currentWorkflowStepId: number;
   autoRedirect: AutoRedirectState;
+  // Per-document real workflow state (fetched when a document is selected)
+  selectedDocWorkflow: WorkflowApiResponse | null;
+  workflowLoading: boolean;
 
   // Selected entities for modals
-  selectedDocId: string | null;
+  selectedDocId: string | null;         // drives DocumentViewer (full-page tab)
+  selectedModalDocId: string | null;    // drives DocumentDetailModal (quick-peek overlay)
   selectedNodeId: string | null;
   quickUploadOpen: boolean;
 
@@ -63,6 +75,20 @@ interface AppState {
 
   // Routing Rules
   routingRules: any[];
+
+  // Document Viewer / Field Editor
+  docFields: DocFieldsResponse | null;
+  docFieldsLoading: boolean;
+
+  // Pre-selection: from StepTracker → target tabs
+  focusedApprovalDocId: string | null;   // highlights matching chain in ApprovalWorkflow
+  focusedApprovalDiffId: string | null;  // precise diff-level highlight in ApprovalWorkflow
+  focusedRollbackOperator: string | null; // highlights operator in RollbackCenter
+
+  // Admin Ownership Engine
+  adminRules: AdminRule[];
+  adminCatalog: CatalogEntry[];
+  adminOverrides: Override[];
 
   // Actions
   login: (username: string, password: string) => Promise<boolean>;
@@ -80,8 +106,10 @@ interface AppState {
   endOnboarding: () => void;
   
   setSelectedDocId: (id: string | null) => void;
+  setSelectedModalDocId: (id: string | null) => void;
   setSelectedNodeId: (id: string | null) => void;
   setQuickUploadOpen: (open: boolean) => void;
+  fetchDocumentWorkflow: (docId: string) => Promise<void>;
 
   // Workflow Navigation Actions
   goToNextStep: () => void;
@@ -104,6 +132,21 @@ interface AppState {
   fetchSmtpStatus: () => Promise<void>;
   fetchRoutingRules: () => Promise<void>;
   loadAllData: () => Promise<void>;
+
+  // Document fields
+  fetchDocFields: (docId: string) => Promise<void>;
+  submitFieldEdit: (docId: string, payload: { base_version_id: string; changes: Record<string,string>; comment: string }) => Promise<{ ok: boolean; status: number; body: any }>;
+  forceReleaseLock: (docId: string, reason: string) => Promise<{ ok: boolean; body: any }>;
+
+  // Admin Ownership Engine
+  fetchAdminRules: () => Promise<void>;
+  fetchAdminCatalog: () => Promise<void>;
+  fetchAdminOverrides: () => Promise<void>;
+
+  // Pre-selection actions
+  setFocusedApprovalDoc: (docId: string | null) => void;
+  setFocusedApprovalDiff: (diffId: string | null) => void;
+  setFocusedRollbackOperator: (operator: string | null) => void;
 
   // Domain Actions
   uploadDocument: (file: File, title?: string) => Promise<void>;
@@ -142,7 +185,14 @@ async function handleFetch(endpoint: string, options?: RequestInit) {
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401) {
     localStorage.removeItem('admin_token');
-    window.location.href = '/login';
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_full_name');
+    localStorage.removeItem('user_email');
+    // Don't redirect if already on login/landing
+    const currentTab = useStore.getState?.()?.activeTab;
+    if (currentTab && currentTab !== 'login' && currentTab !== 'landing') {
+      useStore.getState?.()?.logout?.();
+    }
     throw new Error('Unauthorized');
   }
 
@@ -165,12 +215,40 @@ const getRoleFromActor = (actor: string): string => {
   if (lower === 'system') return 'System';
   if (lower === 'admin') return 'Admin';
   if (lower === 'analyst' || lower.includes('david')) return 'Analyst';
-  if (lower.includes('cto') || lower.includes('routing')) return 'CTO';
-  if (lower.includes('cmo') || lower.includes('commercial')) return 'CMO';
-  if (lower.includes('security') || lower.includes('ciso')) return 'Security';
-  if (lower.includes('finance') || lower.includes('cfo')) return 'Finance';
+  if (lower.includes('approver') || lower.includes('routing') || lower.includes('security') || lower.includes('commercial')) return 'Approver';
+  if (lower.includes('cpo') || lower.includes('exec')) return 'CPO/Exec';
+  if (lower.includes('auditor')) return 'Auditor';
   return 'Admin';
 };
+
+// ── Role-based tab permissions ─────────────────────────────────────────────
+const ALL_TABS: NavigationTab[] = [
+  'dashboard','executive-dashboard','tier-model','ai-roadmap','managed-services',
+  'integration-matrix','governance-pipeline','digital-twin','reconciliation',
+  'documents','master-repo','version-control','difference-checker',
+  'approval-workflow','workflow-viz','notifications','email-center',
+  'audit-logs','rollback-center','operators','global-map','partners',
+  'analytics','ai-assistant','settings','users','rejected-items',
+];
+
+const ROLE_TAB_PERMISSIONS: Record<UserRole, NavigationTab[]> = {
+  'Admin':     [...ALL_TABS, 'document-viewer', 'admin-rules', 'admin-catalog', 'admin-overrides', 'rejected-items'],
+  'Analyst':   ['dashboard','workflow-viz','documents','document-viewer','ai-roadmap','version-control',
+                'difference-checker','governance-pipeline','integration-matrix',
+                'master-repo','operators','notifications','ai-assistant','analytics'],
+  'Approver':  ['dashboard','workflow-viz','approval-workflow','executive-dashboard','document-viewer',
+                'difference-checker','master-repo','notifications','ai-assistant','rejected-items'],
+  'CPO/Exec':  ['dashboard','executive-dashboard','workflow-viz','approval-workflow',
+                'analytics','notifications','ai-assistant','master-repo','document-viewer'],
+  'Auditor':   ['dashboard','workflow-viz','audit-logs','digital-twin','difference-checker',
+                'master-repo','notifications','analytics','ai-assistant','document-viewer'],
+};
+
+export function canAccessTab(role: UserRole, tab: NavigationTab): boolean {
+  if (tab === 'landing' || tab === 'login') return true;
+  const allowed = ROLE_TAB_PERMISSIONS[role];
+  return allowed ? allowed.includes(tab) : false;
+}
 
 // Country metadata lookup for flags, regions, coordinates
 const countryData: Record<string, { flag: string; region: string; lat: number; lng: number }> = {
@@ -201,12 +279,14 @@ export const useStore = create<AppState>((set, get) => ({
 
   isLoggedIn: false,
   token: null,
+  userFullName: localStorage.getItem('user_full_name') || '',
+  userEmail: localStorage.getItem('user_email') || '',
 
   heartbeatStatus: null,
   smtpStatus: null,
 
   workflowSteps: WORKFLOW_STEPS_DATA,
-  currentWorkflowStepId: 4, // Default to Step 4 (Difference Analysis)
+  currentWorkflowStepId: 4,
   autoRedirect: {
     open: false,
     message: '',
@@ -214,8 +294,11 @@ export const useStore = create<AppState>((set, get) => ({
     nextStepName: 'Difference Analysis',
     countdown: 3,
   },
+  selectedDocWorkflow: null,
+  workflowLoading: false,
 
   selectedDocId: null,
+  selectedModalDocId: null,
   selectedNodeId: null,
   quickUploadOpen: false,
 
@@ -229,6 +312,20 @@ export const useStore = create<AppState>((set, get) => ({
   auditLogs: [],
   routingRules: [],
 
+  // Document Viewer / Field Editor
+  docFields: null,
+  docFieldsLoading: false,
+
+  // Pre-selection
+  focusedApprovalDocId: null,
+  focusedApprovalDiffId: null,
+  focusedRollbackOperator: null,
+
+  // Admin Ownership Engine
+  adminRules: [],
+  adminCatalog: [],
+  adminOverrides: [],
+
   login: async (username, password) => {
     try {
       const url = `${API_BASE}/api/auth/login`;
@@ -240,8 +337,14 @@ export const useStore = create<AppState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         localStorage.setItem('admin_token', data.token);
+        localStorage.setItem('user_role', data.role);
+        localStorage.setItem('user_full_name', data.full_name || '');
+        localStorage.setItem('user_email', username);
+        const role = (data.role as UserRole) || 'Analyst';
         const nextTab = get().activeTab === 'landing' || get().activeTab === 'login' ? 'dashboard' : get().activeTab;
-        set({ isLoggedIn: true, token: data.token, activeRole: 'Admin', activeTab: nextTab });
+        // If the post-login target tab isn't accessible to this role, redirect to dashboard
+        const finalTab = canAccessTab(role, nextTab) ? nextTab : 'dashboard';
+        set({ isLoggedIn: true, token: data.token, activeRole: role, activeTab: finalTab, userFullName: data.full_name || '', userEmail: username });
         await get().loadAllData();
         return true;
       }
@@ -254,6 +357,9 @@ export const useStore = create<AppState>((set, get) => ({
   logout: () => {
     const token = get().token;
     localStorage.removeItem('admin_token');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_full_name');
+    localStorage.removeItem('user_email');
     const url = `${API_BASE}/api/auth/logout`;
     fetch(url, {
       method: 'POST',
@@ -263,10 +369,12 @@ export const useStore = create<AppState>((set, get) => ({
       } as Record<string, string>,
       body: JSON.stringify({ token })
     }).catch(() => {});
-    localStorage.removeItem('admin_token');
     set({
       isLoggedIn: false,
       token: null,
+      userFullName: '',
+      userEmail: '',
+      activeRole: 'Analyst' as UserRole,
       activeTab: 'landing',
       documents: [],
       deltas: [],
@@ -296,30 +404,49 @@ export const useStore = create<AppState>((set, get) => ({
       if (res.ok) {
         const data = await res.json();
         if (data.loggedIn) {
+          const role = (data.role as UserRole) || 'Analyst';
+          localStorage.setItem('user_role', role);
+          localStorage.setItem('user_full_name', data.full_name || '');
+          localStorage.setItem('user_email', data.username || '');
           const nextTab = get().activeTab === 'landing' ? 'dashboard' : get().activeTab;
-          set({ isLoggedIn: true, token, activeRole: 'Admin', activeTab: nextTab });
+          const finalTab = canAccessTab(role, nextTab) ? nextTab : 'dashboard';
+          set({ isLoggedIn: true, token, activeRole: role, activeTab: finalTab, userFullName: data.full_name || '', userEmail: data.username || '' });
           await get().loadAllData();
           return;
         }
       }
     } catch (e) {}
     localStorage.removeItem('admin_token');
-    set({ isLoggedIn: false, token: null });
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_full_name');
+    localStorage.removeItem('user_email');
+    set({ isLoggedIn: false, token: null, userFullName: '', userEmail: '' });
   },
 
   setActiveRole: (role) => {
-    // Stub to prevent compilation breaks
+    set({ activeRole: role });
+    // Ensure current tab is accessible to the new role
+    const currentTab = get().activeTab;
+    if (!canAccessTab(role, currentTab)) {
+      set({ activeTab: 'dashboard' });
+    }
   },
 
   setActiveTab: (tab) => {
     const matchedStep = get().workflowSteps.find((s) => s.tabKey === tab);
     set({
       activeTab: tab,
-      currentWorkflowStepId: matchedStep ? matchedStep.id : get().currentWorkflowStepId,
+      // Non-pipeline tabs (operators, notifications, settings, users, etc.) have
+      // no workflow step entry — reset to 0 so the breadcrumb shows the tab title
+      // rather than being stuck on the last pipeline step.
+      currentWorkflowStepId: matchedStep ? matchedStep.id : 0,
     });
   },
 
   setSearchQuery: (query) => set({ searchQuery: query }),
+  setFocusedApprovalDoc: (docId) => set({ focusedApprovalDocId: docId }),
+  setFocusedApprovalDiff: (diffId) => set({ focusedApprovalDiffId: diffId }),
+  setFocusedRollbackOperator: (operator) => set({ focusedRollbackOperator: operator }),
   
   toggleDarkMode: () => {
     const newMode = !get().darkMode;
@@ -337,9 +464,35 @@ export const useStore = create<AppState>((set, get) => ({
   prevOnboardingStep: () => {},
   endOnboarding: () => {},
 
-  setSelectedDocId: (id) => set({ selectedDocId: id }),
+  setSelectedDocId: (id) => {
+    set({ selectedDocId: id });
+    if (id) {
+      // Auto-fetch real workflow state whenever a document is selected
+      get().fetchDocumentWorkflow(id);
+    } else {
+      // Clear workflow state when deselecting
+      set({ selectedDocWorkflow: null, workflowLoading: false });
+    }
+  },
   setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+  setSelectedModalDocId: (id) => set({ selectedModalDocId: id }),
   setQuickUploadOpen: (open) => set({ quickUploadOpen: open }),
+
+  fetchDocumentWorkflow: async (docId) => {
+    set({ workflowLoading: true });
+    try {
+      const res = await handleFetch(`/api/workflow/${docId}`);
+      if (res.ok) {
+        const data: WorkflowApiResponse = await res.json();
+        set({ selectedDocWorkflow: data, workflowLoading: false });
+      } else {
+        // Non-2xx (e.g. 404 for a doc with no state yet) — clear rather than crash
+        set({ selectedDocWorkflow: null, workflowLoading: false });
+      }
+    } catch {
+      set({ selectedDocWorkflow: null, workflowLoading: false });
+    }
+  },
 
   goToNextStep: () => {
     const currentId = get().currentWorkflowStepId;
@@ -429,8 +582,16 @@ export const useStore = create<AppState>((set, get) => ({
         receivedAt: d.created_at ? d.created_at.slice(0, 16).replace('T', ' ') : 'Just now',
         modifiedDate: d.created_at ? d.created_at.slice(0, 16).replace('T', ' ') : 'Just now',
         author: 'Parser Engine',
-        status: (d.latest_diff_status === 'approved' ? 'Approved' : d.latest_diff_status === 'rejected' ? 'Rejected' : d.latest_diff_status === 'no_changes' ? 'Provisioned' : 'In Delta Check') as any,
-        approvalStatus: (d.latest_diff_status === 'approved' ? 'Approved' : d.latest_diff_status === 'rejected' ? 'Rejected' : 'Pending') as any,
+        // 'deployed' is the steady-state after successful deployment; 'approved' only
+        // exists briefly between the workflow completing and deployment running.
+        // 'no_changes' means first-ingest with nothing to diff — already provisioned.
+        // All three should map to 'Approved' so the Connected MNOs filter works.
+        status: (d.latest_diff_status === 'approved' || d.latest_diff_status === 'deployed' ? 'Approved'
+          : d.latest_diff_status === 'rejected' ? 'Rejected'
+          : d.latest_diff_status === 'no_changes' ? 'Provisioned'
+          : 'In Delta Check') as any,
+        approvalStatus: (['approved', 'deployed', 'no_changes'].includes(d.latest_diff_status) ? 'Approved'
+          : d.latest_diff_status === 'rejected' ? 'Rejected' : 'Pending') as any,
         deltaCount: 3,
         riskScore: 'Medium' as any,
         fileSize: '350 KB',
@@ -498,6 +659,9 @@ export const useStore = create<AppState>((set, get) => ({
         }
         return {
           id: String(r.id),
+          // diff_id (the parent diff this item belongs to) — used by ApprovalWorkflow
+          // to identify the exact chain when multiple diffs exist for the same document.
+          diffId: String(r.diff_id || r.diff_id_col || ''),
           docId: String(r.document_id),
           operator: r.operator_name,
           category: r.category as any,
@@ -546,6 +710,9 @@ export const useStore = create<AppState>((set, get) => ({
         return {
           id: String(wfId),
           docId: String(sample.document_id || ''),
+          // diff_id is exposed so ApprovalWorkflow can match by diff, not just docId,
+          // when multiple chains exist for the same document.
+          diffId: String(sample.diff_id || ''),
           docTitle: sample.document_title || '',
           operator: sample.operator_name || '',
           country: sample.operator_country || '',
@@ -555,9 +722,16 @@ export const useStore = create<AppState>((set, get) => ({
           steps: wfSteps.map((s) => ({
             role: s.role_title as UserRole,
             label: s.category,
-            status: (s.status === 'approved' ? 'Approved' : s.status === 'rejected' ? 'Rejected' : s.status === 'pending' ? 'Pending' : 'Skipped') as any,
+            // 'waiting' steps map to 'Waiting' (previously 'Skipped') so Admin can
+            // identify and act on them.  They already have a token — decideStep handles them.
+            status: (s.status === 'approved' ? 'Approved' : s.status === 'rejected' ? 'Rejected'
+                   : s.status === 'pending' ? 'Pending' : s.status === 'waiting' ? 'Waiting' : 'Skipped') as any,
             approverName: s.approver_name || undefined,
             approverEmail: s.approver_email || undefined,
+            // decided_by_* — the real authenticated actor who clicked the button.
+            // Distinct from approverName/approverEmail which are the assignment fields.
+            decided_by_name:  s.decided_by_name  || undefined,
+            decided_by_email: s.decided_by_email || undefined,
             mailContent: `Hello ${s.approver_name || 'Approver'},\n\nPlease review the pending changes for ${s.category} in document ${sample.document_title || 'IR.21'}.\n\nClick here to decide: /api/approvals/${s.token}/decide\n\nThanks,\nRoaming Copilot`,
             timestamp: s.decided_at || undefined,
             comments: s.comment || undefined,
@@ -640,7 +814,9 @@ export const useStore = create<AppState>((set, get) => ({
         id: String(a.id),
         timestamp: a.timestamp.replace('T', ' ').slice(0, 16),
         user: a.actor || 'system',
-        role: getRoleFromActor(a.actor || 'system') as any,
+        // Use the real role from users table (actor_role) — falls back to heuristic
+        // only for system/parser actors that have no users row (actor_role = null).
+        role: (a.actor_role || getRoleFromActor(a.actor || 'system')) as any,
         action: a.action.toUpperCase(),
         targetResource: a.entity_type.toUpperCase(),
         details: a.details || undefined,
@@ -650,6 +826,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ auditLogs: logs });
     }
   },
+
 
   fetchRollbackQueue: async () => {
     const res = await handleFetch('/api/workflow/rollback-queue');
@@ -742,14 +919,23 @@ export const useStore = create<AppState>((set, get) => ({
 
   approveItem: async (chainId, comment) => {
     const chain = get().approvalChains.find((c) => c.id === chainId);
-    if (!chain) return;
-    const step: any = chain.steps.find((s) => s.status === 'Pending');
-    if (!step || !step.token) return;
+    if (!chain) { console.error('[approveItem] chain not found:', chainId); return; }
 
-    const res = await fetch(`${API_BASE}/api/approvals/${step.token}/decide`, {
+    // 1A fix: prefer a Pending step (already active), fall back to the first
+    // Waiting step.  Both have tokens set by createWorkflowForDiff — decideStep
+    // handles waiting steps identically to pending ones (same audit log, same
+    // self-approval guard, same sequencing).
+    const step: any =
+      chain.steps.find((s) => s.status === 'Pending') ||
+      chain.steps.find((s) => s.status === 'Waiting');
+
+    if (!step) { console.error('[approveItem] no actionable step found for chain:', chainId); return; }
+    if (!step.token) { console.error('[approveItem] step has no token — workflow may be misconfigured:', step); return; }
+
+    // 1B fix: use handleFetch so the Authorization header is always sent.
+    const res = await handleFetch(`/api/approvals/${step.token}/decide`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'approve', comment })
+      body: JSON.stringify({ action: 'approve', comment }),
     });
     if (res.ok) {
       await get().loadAllData();
@@ -758,22 +944,44 @@ export const useStore = create<AppState>((set, get) => ({
         'governance-pipeline',
         'Staging Queue'
       );
+    } else {
+      const body = await res.json().catch(() => ({}));
+      if (body.code === 'OUT_OF_SEQUENCE') {
+        console.error(
+          '[approveItem] Sequencing violation — the backend refused this decision.',
+          `\nBlocking step: order=${body.blocking_step?.step_order}`,
+          `role="${body.blocking_step?.role_title}"`,
+          `category="${body.blocking_step?.category}"`,
+          `status="${body.blocking_step?.status}"`,
+          `\nFull error: ${body.error}`
+        );
+      } else {
+        console.error('[approveItem] backend error:', res.status, body);
+      }
     }
   },
 
   rejectItem: async (chainId, reason) => {
     const chain = get().approvalChains.find((c) => c.id === chainId);
-    if (!chain) return;
-    const step: any = chain.steps.find((s) => s.status === 'Pending');
-    if (!step || !step.token) return;
+    if (!chain) { console.error('[rejectItem] chain not found:', chainId); return; }
 
-    const res = await fetch(`${API_BASE}/api/approvals/${step.token}/decide`, {
+    const step: any =
+      chain.steps.find((s) => s.status === 'Pending') ||
+      chain.steps.find((s) => s.status === 'Waiting');
+
+    if (!step) { console.error('[rejectItem] no actionable step found for chain:', chainId); return; }
+    if (!step.token) { console.error('[rejectItem] step has no token:', step); return; }
+
+    // 1B fix: use handleFetch so the Authorization header is always sent.
+    const res = await handleFetch(`/api/approvals/${step.token}/decide`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'reject', comment: reason })
+      body: JSON.stringify({ action: 'reject', comment: reason }),
     });
     if (res.ok) {
       await get().loadAllData();
+    } else {
+      const body = await res.json().catch(() => ({}));
+      console.error('[rejectItem] backend error:', res.status, body);
     }
   },
 
@@ -798,8 +1006,17 @@ export const useStore = create<AppState>((set, get) => ({
         'audit-logs',
         'Audit & Reports'
       );
+    } else {
+      // Parse and throw so the UI can display the reason (e.g. 409 deploying guard)
+      let errMsg = 'Rollback failed';
+      try {
+        const errData = await res.json();
+        errMsg = errData.error || errMsg;
+      } catch {}
+      throw new Error(errMsg);
     }
   },
+
 
   markNotificationRead: async (notifId) => {
     const res = await handleFetch(`/api/notifications/${notifId}/read`, {
@@ -873,4 +1090,116 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
   },
+
+  // ── Document Viewer / Field Editor ─────────────────────────────────────────
+
+  fetchDocFields: async (docId) => {
+    set({ docFieldsLoading: true });
+    try {
+      const res = await handleFetch(`/api/documents/${docId}/fields`);
+      if (res.ok) {
+        const raw = await res.json();
+        // Build field_meta from the flat fields + classify info returned by the server
+        // The backend /api/documents/:id/fields returns:
+        //   { baseline_version_id, version_number, doc_type, operator_name, operator_id,
+        //     fields: {path: value}, field_meta: {path: {domain, owner_source, rule_version, flagged, duplicate}},
+        //     edit_locked, pending_diff_id, approval_steps? }
+        set({ docFields: raw as DocFieldsResponse, docFieldsLoading: false });
+      } else {
+        set({ docFields: null, docFieldsLoading: false });
+      }
+    } catch {
+      set({ docFields: null, docFieldsLoading: false });
+    }
+  },
+
+  submitFieldEdit: async (docId, payload) => {
+    const res = await handleFetch(`/api/documents/${docId}/fields`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    let body: any = {};
+    try { body = await res.json(); } catch {}
+    return { ok: res.ok, status: res.status, body };
+  },
+
+  forceReleaseLock: async (docId, reason) => {
+    const res = await handleFetch(`/api/documents/${docId}/edit-lock`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    let body: any = {};
+    try { body = await res.json(); } catch {}
+    return { ok: res.ok, body };
+  },
+
+  // ── Admin Ownership Engine ──────────────────────────────────────────────────
+
+  fetchAdminRules: async () => {
+    try {
+      const res = await handleFetch('/api/ownership/rules');
+      if (res.ok) {
+        const data = await res.json();
+        // DB columns: id, rule_type, pattern, domain, doc_type, priority, is_active, notes, created_by, created_at, updated_at
+        const rules: AdminRule[] = (Array.isArray(data) ? data : (data.rules || [])).map((r: any) => ({
+          id: String(r.id),
+          domain: r.domain || 'General',
+          // map DB rule_type → match_field UI concept
+          match_field: r.rule_type === 'section' ? 'section' : r.rule_type === 'explicit_general' ? 'path' : 'label',
+          // map DB pattern (single string) → keywords array the UI expects
+          keywords: r.pattern
+            ? r.pattern.split(',').map((k: string) => k.trim()).filter(Boolean)
+            : [],
+          priority: r.priority ?? 0,
+          active: r.is_active !== 0,
+          created_at: r.created_at,
+        }));
+        set({ adminRules: rules });
+      }
+    } catch {}
+  },
+
+  fetchAdminCatalog: async () => {
+    try {
+      const res = await handleFetch('/api/ownership/catalog');
+      if (res.ok) {
+        const data = await res.json();
+        // DB columns: id, doc_type, field_label, domain, pending_owner_confirmation, is_active, aliases, notes, created_by, created_at, updated_at
+        const entries: CatalogEntry[] = (Array.isArray(data) ? data : (data.entries || [])).map((e: any) => ({
+          id: String(e.id),
+          field_path: e.field_label,            // DB stores field_label; UI calls it field_path
+          domain: e.domain,
+          doc_type: e.doc_type || '*',
+          operator_id: e.operator_id || null,
+          active: e.is_active !== 0,            // DB column is is_active
+          flagged: e.pending_owner_confirmation === 1, // pending confirmation = flagged in UI
+          source_note: e.notes,
+        }));
+        set({ adminCatalog: entries });
+      }
+    } catch {}
+  },
+
+  fetchAdminOverrides: async () => {
+    try {
+      const res = await handleFetch('/api/ownership/overrides');
+      if (res.ok) {
+        const data = await res.json();
+        // DB columns: id, normalized_label, operator_id (__GLOBAL__ = all), section_scope, domain, notes, created_by, created_at, updated_at
+        const overrides: Override[] = (Array.isArray(data) ? data : (data.overrides || [])).map((o: any) => ({
+          id: String(o.id),
+          field_path: o.normalized_label,       // UI calls it field_path; DB stores normalized_label
+          domain: o.domain,
+          operator_id: o.operator_id === '__GLOBAL__' ? null : (o.operator_id || null),
+          operator_name: o.operator_name || (o.operator_id === '__GLOBAL__' ? 'Global' : o.operator_id),
+          created_at: o.created_at,
+        }));
+        set({ adminOverrides: overrides });
+      }
+    } catch {}
+  },
 }));
+
+

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useStore } from './store/useStore';
+import { useStore, canAccessTab } from './store/useStore';
 import { Topbar } from './components/layout/Topbar';
 import { Sidebar } from './components/layout/Sidebar';
 
@@ -10,6 +10,7 @@ import { TokenApprovalView } from './components/views/TokenApprovalView';
 import { Dashboard } from './components/views/Dashboard';
 import { WorkflowVisualization } from './components/views/WorkflowVisualization';
 import { DocumentsView } from './components/views/DocumentsView';
+import { DocumentViewer } from './components/views/DocumentViewer';
 import { MasterRepositoryView } from './components/views/MasterRepositoryView';
 import { VersionControlView } from './components/views/VersionControlView';
 import { DifferenceChecker } from './components/views/DifferenceChecker';
@@ -20,6 +21,12 @@ import { AuditLogsView } from './components/views/AuditLogsView';
 import { OperatorsView } from './components/views/OperatorsView';
 import { AnalyticsView } from './components/views/AnalyticsView';
 import { SettingsView } from './components/views/SettingsView';
+import { UsersView } from './components/views/UsersView';
+import { NotificationsView } from './components/views/NotificationsView';
+import { AdminRulesView } from './components/views/AdminRulesView';
+import { AdminCatalogView } from './components/views/AdminCatalogView';
+import { AdminOverridesView } from './components/views/AdminOverridesView';
+import { RejectedItemsView } from './components/views/RejectedItemsView';
 
 // Additional Workflow Step Views
 import { AIRoadmapView } from './components/views/AIRoadmapView';
@@ -55,14 +62,19 @@ export function App() {
     activeTab, 
     selectedDocId, 
     setSelectedDocId,
+    selectedModalDocId,
+    setSelectedModalDocId,
     selectedNodeId,
     setSelectedNodeId,
     isLoggedIn,
+    activeRole,
     checkSession,
+    setActiveTab,
     loadAllData
   } = useStore();
 
   const [approverToken, setApproverToken] = React.useState<string | null>(null);
+  const [pendingApprovalToken, setPendingApprovalToken] = React.useState<string | null>(null);
 
   // Hash-routing listener for /approve/:token magic links
   React.useEffect(() => {
@@ -96,10 +108,30 @@ export function App() {
     return () => clearInterval(interval);
   }, [isLoggedIn, approverToken]);
 
-  // Case 1: Standalone unauthenticated token approver page
+  // Case 1: Approval token link — requires login first
   if (approverToken) {
+    if (!isLoggedIn) {
+      // Store the pending token and show login
+      if (!pendingApprovalToken) setPendingApprovalToken(approverToken);
+      return <Login />;
+    }
     return <TokenApprovalView token={approverToken} />;
   }
+
+  // After successful login, check if there's a pending approval to redirect to
+  React.useEffect(() => {
+    if (isLoggedIn && pendingApprovalToken && !approverToken) {
+      setApproverToken(pendingApprovalToken);
+      setPendingApprovalToken(null);
+    }
+  }, [isLoggedIn, pendingApprovalToken]);
+
+  // Tab guard: if current tab isn't accessible to current role, redirect to dashboard
+  React.useEffect(() => {
+    if (isLoggedIn && activeTab !== 'landing' && activeTab !== 'login' && !canAccessTab(activeRole, activeTab)) {
+      setActiveTab('dashboard');
+    }
+  }, [activeRole, activeTab, isLoggedIn]);
 
   // Case 2: Landing Page (always full screen)
   if (activeTab === 'landing') {
@@ -130,6 +162,11 @@ export function App() {
       case 'operators': return 'Connected Mobile Network Operators (MNOs)';
       case 'analytics': return 'Analytics & SLA Performance';
       case 'settings': return 'Platform Settings';
+      case 'document-viewer': return 'Document Field Viewer';
+      case 'admin-rules': return 'Ownership Engine — Classification Rules';
+      case 'admin-catalog': return 'Ownership Engine — Field Catalog';
+      case 'admin-overrides': return 'Ownership Engine — Field Overrides';
+      case 'rejected-items': return 'Rejected Workflows — Decision History';
       default: return 'Mobileum Automation Console';
     }
   };
@@ -165,8 +202,14 @@ export function App() {
             {activeTab === 'operators' && <OperatorsView />}
             {activeTab === 'analytics' && <AnalyticsView />}
             {activeTab === 'settings' && <SettingsView />}
-            {activeTab === 'notifications' && <Dashboard />}
+            {activeTab === 'users' && <UsersView />}
+            {activeTab === 'notifications' && <NotificationsView />}
             {activeTab === 'master-repo' && <MasterRepositoryView />}
+            {activeTab === 'document-viewer' && <DocumentViewer />}
+            {activeTab === 'admin-rules' && <AdminRulesView />}
+            {activeTab === 'admin-catalog' && <AdminCatalogView />}
+            {activeTab === 'admin-overrides' && <AdminOverridesView />}
+            {activeTab === 'rejected-items' && <RejectedItemsView />}
           </main>
 
           {/* Sequential Next/Prev footer navigation */}
@@ -176,7 +219,7 @@ export function App() {
 
       {/* Global Modals */}
       <QuickUploadModal />
-      <DocumentDetailModal docId={selectedDocId} onClose={() => setSelectedDocId(null)} />
+      <DocumentDetailModal docId={selectedModalDocId} onClose={() => setSelectedModalDocId(null)} />
       <NodeDetailModal nodeId={selectedNodeId} onClose={() => setSelectedNodeId(null)} />
       <AutoRedirectModal />
 
@@ -193,50 +236,62 @@ import { useState as useReactState, useRef, useEffect as useReactEffect } from '
 const FloatingAICopilot = () => {
   const [isOpen, setIsOpen] = useReactState(false);
   const [inputStr, setInputStr] = useReactState('');
-  const { documents } = useStore();
+  const [loading, setLoading] = useReactState(false);
   const [messages, setMessages] = useReactState([
-    { sender: 'ai', text: 'Hello! I am your Mobileum AI Roaming Copilot. I can parse uploaded documents, explain GT routing anomalies, or generate scripts. How can I help you today?' }
+    { sender: 'ai', text: 'Hello! I am your Mobileum AI Roaming Copilot. Ask me about any operator, document, diff, or pending approval currently in the portal.' }
   ]);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  const handleSend = (e: React.FormEvent) => {
+  useReactEffect(() => {
+    if (isOpen) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isOpen]);
+
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputStr.trim()) return;
-    const userMsg = inputStr;
+    if (!inputStr.trim() || loading) return;
+    const userMsg = inputStr.trim();
     setInputStr('');
-    setMessages(prev => [...prev, { sender: 'user', text: userMsg }]);
-
-    setTimeout(() => {
-      let aiResponse = 'I have parsed your request. I recommend verifying SEPP endpoints before approval.';
-      if (userMsg.toLowerCase().includes('parse') || userMsg.toLowerCase().includes('upload') || userMsg.toLowerCase().includes('read')) {
-        const latestDoc = documents[0];
-        if (latestDoc) {
-           aiResponse = `I have successfully parsed the latest document: **${latestDoc.operatorName} (${latestDoc.title})**. It contains ${latestDoc.deltaCount} anomalies including a GT routing mismatch for ${latestDoc.mccMnc}.`;
-        } else {
-           aiResponse = `I don't see any uploaded documents yet. Please upload one via the Documents Ingest tab and I will parse it for you.`;
-        }
-      } else if (userMsg.toLowerCase().includes('bsnl') || userMsg.toLowerCase().includes('orange')) {
-        aiResponse = `I found references to that operator. The automated parsing detected a severe routing conflict in their latest IR.21 XML update. I suggest reviewing the Difference Checker.`;
-      }
-      setMessages(prev => [...prev, { sender: 'ai', text: aiResponse }]);
-    }, 800);
+    const nextMessages = [...messages, { sender: 'user', text: userMsg }];
+    setMessages(nextMessages);
+    setLoading(true);
+    try {
+      // @ts-ignore
+      const API_BASE = import.meta.env.VITE_API_URL || '';
+      const token = localStorage.getItem('admin_token');
+      const res = await fetch(`${API_BASE}/api/assistant/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ message: userMsg, history: nextMessages.slice(0, -1) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'AI request failed');
+      setMessages(prev => [...prev, { sender: 'ai', text: data.reply }]);
+    } catch (err: any) {
+      setMessages(prev => [...prev, { sender: 'ai', text: `Sorry, I couldn't reach the AI service: ${err.message}` }]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110 z-50 animate-bounce"
+        className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full shadow-2xl flex items-center justify-center transition-transform hover:scale-110 z-50"
         title="Open AI Copilot"
       >
         <Bot className="w-6 h-6" />
       </button>
 
       {isOpen && (
-        <div className="fixed bottom-24 right-6 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl flex flex-col z-50 overflow-hidden animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-24 right-6 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl flex flex-col z-50 overflow-hidden">
           <div className="bg-emerald-600 p-4 flex items-center justify-between text-white">
             <div className="flex items-center space-x-2">
               <Bot className="w-5 h-5" />
-              <span className="font-bold">Real-time AI Copilot</span>
+              <span className="font-bold">AI Roaming Copilot</span>
             </div>
             <button onClick={() => setIsOpen(false)} className="hover:bg-emerald-500 p-1 rounded-lg">
               <X className="w-4 h-4" />
@@ -251,6 +306,14 @@ const FloatingAICopilot = () => {
                 </div>
               </div>
             ))}
+            {loading && (
+              <div className="flex items-center space-x-2 text-xs text-slate-400">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+            )}
+            <div ref={bottomRef} />
           </div>
 
           <form onSubmit={handleSend} className="p-3 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center space-x-2">
@@ -258,10 +321,11 @@ const FloatingAICopilot = () => {
               type="text"
               value={inputStr}
               onChange={e => setInputStr(e.target.value)}
-              placeholder="Ask me to read uploaded docs..."
-              className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+              placeholder="Ask about an operator or document…"
+              disabled={loading}
+              className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:border-emerald-500 disabled:opacity-50"
             />
-            <button type="submit" className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl">
+            <button type="submit" disabled={loading} className="p-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl">
               <Send className="w-4 h-4" />
             </button>
           </form>

@@ -18,7 +18,14 @@ export const TokenApprovalView: React.FC<TokenApprovalViewProps> = ({ token }) =
     try {
       // @ts-ignore
       const API_BASE = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${API_BASE}/api/approvals/token/${token}`);
+      const token_header = localStorage.getItem('admin_token');
+      const res = await fetch(`${API_BASE}/api/approvals/token/${token}`, {
+        headers: token_header ? { 'Authorization': `Bearer ${token_header}` } : {},
+      });
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Your account role does not have permission to view this approval.');
+      }
       if (!res.ok) {
         throw new Error('This link is invalid or expired.');
       }
@@ -49,12 +56,19 @@ export const TokenApprovalView: React.FC<TokenApprovalViewProps> = ({ token }) =
       const commentWithSignature = `Approved by ${signatureName}. Comment: ${comment || 'None'}`;
       // @ts-ignore
       const API_BASE = import.meta.env.VITE_API_URL || '';
+      const token_header = localStorage.getItem('admin_token');
       const res = await fetch(`${API_BASE}/api/approvals/${token}/decide`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token_header ? { 'Authorization': `Bearer ${token_header}` } : {}),
+        },
         body: JSON.stringify({ action, comment: commentWithSignature })
       });
-      if (res.ok) {
+      if (res.status === 403) {
+        const errJson = await res.json().catch(() => ({}));
+        alert(errJson.error || 'Your account does not have permission to approve this domain.');
+      } else if (res.ok) {
         alert(action === 'approve' ? 'Workflow stage successfully authorized!' : 'Workflow stage rejected and sent back.');
         await fetchDetails(); // reload to get read-only state
       } else {

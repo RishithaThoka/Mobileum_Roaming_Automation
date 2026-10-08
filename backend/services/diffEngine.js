@@ -7,6 +7,7 @@ const txtParser = require('./parsers/txtParser');
 const documentExtractor = require('./ai/documentExtractor');
 const sarConverter = require('./ai/sarConverter');
 const domainClassifier = require('./ai/domainClassifier');
+const riskScorer      = require('./ai/riskScorer');
 const { categorize } = require('./categorize');
 
 /**
@@ -98,6 +99,7 @@ async function computeDiff(oldFields, newFields, versionInfo = {}) {
       needs_review: needsReview,
       risk_score,
       impact_level,
+      scoring_method: 'deterministic_fallback', // will be overwritten to 'ai_evaluated' below if AI call succeeds
       ai_analysis,
       affected
     };
@@ -108,6 +110,34 @@ async function computeDiff(oldFields, newFields, versionInfo = {}) {
       domainsDict[domainName] = [];
     }
     domainsDict[domainName].push(diffItem);
+  }
+
+  // ── Post-loop: one batched AI risk-scoring call ─────────────────────────────
+  // Deterministic scores above are always the baseline. The AI enriches them
+  // if ENABLE_AI_RISK_SCORING=true. Any field the AI omits or returns invalid
+  // data for keeps its deterministic score (partial-credit, per-field merge).
+  if (items.length > 0) {
+    const aiScores = await riskScorer.scoreChanges(
+      items.map(i => ({
+        field_path: i.field_path,
+        old_value:  i.old_value,
+        new_value:  i.new_value,
+        domain:     i.domain
+      }))
+    );
+    if (aiScores !== null) {
+      for (const item of items) {
+        const aiScore = aiScores.get(item.field_path);
+        if (aiScore) {
+          item.risk_score     = aiScore.risk_score;
+          item.impact_level   = aiScore.impact_level;
+          item.ai_analysis    = aiScore.ai_analysis;  // real AI text replaces template
+          item.scoring_method = 'ai_evaluated';
+        }
+        // else: item keeps its deterministic_fallback score unchanged
+      }
+    }
+    // if aiScores === null: all items remain deterministic_fallback — nothing changes
   }
 
   let highestSeverity = 'minor';
